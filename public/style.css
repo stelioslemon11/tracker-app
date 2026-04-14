@@ -21,6 +21,7 @@
   --green:  #22c55e; --green-bg:  #14532d; --green-border: #16a34a;
   --yellow: #eab308; --yellow-bg: #713f12; --yellow-border:#ca8a04;
   --blue:   #3b82f6; --blue-bg:  #1e3a8a; --blue-border:  #2563eb;
+  --orange: #f97316; --orange-bg: #7c2d12; --orange-border:#ea580c;
   --red:    #ef4444; --red-bg:   #7f1d1d; --red-border:   #dc2626;
 }
 
@@ -113,6 +114,7 @@ header .badge {
 #result-box.GREEN  { background: rgba(34,197,94,.08);  border-color: var(--green);  }
 #result-box.YELLOW { background: rgba(234,179,8,.08);  border-color: var(--yellow); }
 #result-box.BLUE   { background: rgba(59,130,246,.08); border-color: var(--blue);   }
+#result-box.ORANGE { background: rgba(249,115,22,.08); border-color: var(--orange); }
 #result-box.RED    { background: rgba(239,68,68,.08);  border-color: var(--red);    }
 
 .result-header {
@@ -130,6 +132,7 @@ header .badge {
 .GREEN  .result-dot { background: var(--green);  color: var(--green);  }
 .YELLOW .result-dot { background: var(--yellow); color: var(--yellow); }
 .BLUE   .result-dot { background: var(--blue);   color: var(--blue);   }
+.ORANGE .result-dot { background: var(--orange); color: var(--orange); }
 .RED    .result-dot { background: var(--red);    color: var(--red);    }
 
 .result-title {
@@ -139,6 +142,7 @@ header .badge {
 .GREEN  .result-title { color: var(--green);  }
 .YELLOW .result-title { color: var(--yellow); }
 .BLUE   .result-title { color: var(--blue);   }
+.ORANGE .result-title { color: var(--orange); }
 .RED    .result-title { color: var(--red);    }
 
 .result-desc {
@@ -275,6 +279,7 @@ tbody td {
 .badge-GREEN  { background: rgba(34,197,94,.15);  color: var(--green);  }
 .badge-YELLOW { background: rgba(234,179,8,.15);  color: var(--yellow); }
 .badge-BLUE   { background: rgba(59,130,246,.15); color: var(--blue);   }
+.badge-ORANGE { background: rgba(249,115,22,.15); color: var(--orange); }
 .badge-RED    { background: rgba(239,68,68,.15);  color: var(--red);    }
 
 /* ── Device & Network cards ──────────────────────────────────────────────── */
@@ -322,4 +327,76 @@ tbody td {
   padding:       18px 22px;
   color:         #fca5a5;
   font-size:     .9rem;
+}
+
+/* ── Risk score panel (ORANGE tier) ─────────────────────────────────────── */
+#risk-panel {
+  display:       none;
+  background:    rgba(249,115,22,.06);
+  border:        1px solid rgba(249,115,22,.25);
+  border-radius: var(--radius-sm);
+  padding:       16px 18px;
+  margin-bottom: 20px;
+}
+.risk-header {
+  display:     flex;
+  align-items: center;
+  gap:         10px;
+  margin-bottom: 10px;
+}
+.risk-label {
+  font-size:   .78rem;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color:       var(--orange);
+  font-weight: 600;
+}
+.risk-score-num {
+  margin-left: auto;
+  font-size:   1.1rem;
+  font-weight: 700;
+  color:       var(--orange);
+}
+.risk-bar-track {
+  height:        8px;
+  background:    rgba(249,115,22,.15);
+  border-radius: 999px;
+  overflow:      hidden;
+  margin-bottom: 14px;
+}
+.risk-bar-fill {
+  height:        100%;
+  border-radius: 999px;
+  background:    var(--orange);
+  transition:    width .5s ease;
+}
+.risk-reasons {
+  display:       flex;
+  flex-direction: column;
+  gap:           8px;
+}
+.risk-reason-card {
+  background:    rgba(249,115,22,.08);
+  border:        1px solid rgba(249,115,22,.2);
+  border-radius: var(--radius-sm);
+  padding:       10px 12px;
+}
+.risk-reason-title {
+  font-size:  .82rem;
+  font-weight: 600;
+  color:      var(--orange);
+  margin-bottom: 4px;
+  display:    flex;
+  align-items: center;
+  gap:        6px;
+}
+.risk-reason-score {
+  margin-left: auto;
+  font-size:  .75rem;
+  color:      var(--text-dim);
+}
+.risk-reason-detail {
+  font-size:  .8rem;
+  color:      var(--text-dim);
+  line-height: 1.5;
 }

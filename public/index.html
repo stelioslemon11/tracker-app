@@ -56,6 +56,18 @@
         This suggests cookies were cleared or you're using a different profile.
       </div>
 
+      <!-- Risk score panel (shown for ORANGE tier) -->
+      <div id="risk-panel">
+        <div class="risk-header">
+          <span class="risk-label">⚠️ Risk Analysis</span>
+          <span class="risk-score-num" id="risk-score-num">0 / 100</span>
+        </div>
+        <div class="risk-bar-track">
+          <div class="risk-bar-fill" id="risk-bar-fill" style="width:0%"></div>
+        </div>
+        <div class="risk-reasons" id="risk-reasons"></div>
+      </div>
+
       <!-- Network label -->
       <div style="margin-bottom:16px">
         <span style="font-size:.8rem;color:var(--muted)">Label this network (e.g. "Home WiFi", "Office"):</span>
@@ -98,6 +110,7 @@
             <th>#</th>
             <th>Time</th>
             <th>Correlation</th>
+            <th>Risk</th>
             <th>Browser / OS</th>
             <th>Device type</th>
             <th>Network / ISP</th>
@@ -105,7 +118,7 @@
           </tr>
         </thead>
         <tbody id="history-tbody">
-          <tr><td colspan="7" class="empty">Loading…</td></tr>
+          <tr><td colspan="8" class="empty">Loading…</td></tr>
         </tbody>
       </table>
     </div>
@@ -199,6 +212,30 @@ function shortId(id) {
       document.getElementById('fp-banner').style.display = 'block';
     }
 
+    // Risk score panel (shown whenever riskScore > 0, highlighted for ORANGE)
+    if (data.riskScore > 0) {
+      const panel   = document.getElementById('risk-panel');
+      const barFill = document.getElementById('risk-bar-fill');
+      const scoreEl = document.getElementById('risk-score-num');
+      const reasons = document.getElementById('risk-reasons');
+
+      panel.style.display = 'block';
+      scoreEl.textContent = `${data.riskScore} / 100`;
+      barFill.style.width = `${data.riskScore}%`;
+
+      if (data.riskReasons && data.riskReasons.length) {
+        reasons.innerHTML = data.riskReasons.map(r => `
+          <div class="risk-reason-card">
+            <div class="risk-reason-title">
+              ${r.label}
+              <span class="risk-reason-score">+${r.score} pts</span>
+            </div>
+            <div class="risk-reason-detail">${r.detail}</div>
+          </div>
+        `).join('');
+      }
+    }
+
     // ── Device card ─────────────────────────────────────────────────────────
     const d = data.device;
     document.getElementById('device-info').innerHTML =
@@ -287,6 +324,7 @@ async function loadHistory() {
     { label: 'GREEN',  val: stats.green_count,  dot: '#22c55e' },
     { label: 'YELLOW', val: stats.yellow_count, dot: '#eab308' },
     { label: 'BLUE',   val: stats.blue_count,   dot: '#3b82f6' },
+    { label: 'ORANGE', val: stats.orange_count, dot: '#f97316' },
     { label: 'RED',    val: stats.red_count,    dot: '#ef4444' },
   ].map(s => `
     <div class="stat-pill">
@@ -298,7 +336,7 @@ async function loadHistory() {
   // Table rows
   const tbody = document.getElementById('history-tbody');
   if (!visits.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty">No visits yet.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="empty">No visits yet.</td></tr>';
     return;
   }
   tbody.innerHTML = visits.map((v, i) => `
@@ -306,6 +344,7 @@ async function loadHistory() {
       <td style="color:var(--muted)">${v.id}</td>
       <td title="${v.visit_time}">${elapsed(v.visit_time)}</td>
       <td>${badge(v.correlation)}</td>
+      <td>${v.risk_score > 0 ? `<span style="color:var(--orange);font-weight:600;font-size:.8rem">${v.risk_score}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
       <td>${v.browser || '?'} ${v.browser_version || ''} / ${v.os || '?'}</td>
       <td>${v.device_type || '?'}</td>
       <td>${v.network_label ? `<strong>${v.network_label}</strong>` : (v.isp || '?')}</td>

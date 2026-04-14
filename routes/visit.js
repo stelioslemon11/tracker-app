@@ -3,37 +3,39 @@
  *
  * POST /api/visit
  *   Receives the browser-collected payload, enriches it with server-side IP
- *   data, runs the correlation classifier, persists everything, and returns
- *   the full result to the client.
+ *   data, runs the full risk + correlation engine, persists everything, and
+ *   returns the result to the client.
  *
  * PATCH /api/network-label
- *   Lets the user assign a human-readable label to a network (e.g. "Home WiFi").
+ *   Lets the user assign a human-readable label to a network.
  */
 
 const express = require('express');
 const router  = express.Router();
 
-const { lookupIP, buildNetworkId } = require('../lib/ipLookup');
-const { parseUA }                  = require('../lib/deviceParser');
-const { classify, COLORS }         = require('../lib/correlation');
+const { lookupIP, buildNetworkId }          = require('../lib/ipLookup');
+const { parseUA }                            = require('../lib/deviceParser');
+const { classify, COLORS }                   = require('../lib/correlation');
 const {
   upsertNetwork,
   upsertDevice,
   insertVisit,
   getNetworkSummaries,
   updateNetworkLabel,
+  getSimilarDevices,
+  getRecentNetworksForFingerprint,
 } = require('../database');
 
 // ─── POST /api/visit ──────────────────────────────────────────────────────────
 router.post('/visit', async (req, res) => {
   try {
-    // 1. Extract real client IP (works behind proxies / ngrok)
+    // 1. Real client IP (handles proxies / Render / ngrok)
     const ip =
       (req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
       req.socket.remoteAddress ||
       '0.0.0.0';
 
-    // 2. Body from client-side collector
+    // 2. Client-side payload
     const {
       device_id,
       fingerprint_id,
@@ -51,19 +53,54 @@ router.post('/visit', async (req, res) => {
       return res.status(400).json({ error: 'device_id is required' });
     }
 
-    // 3. Enrich with IP lookup
-    const geo        = await lookupIP(ip);
+    // 3. IP geolookup + parse UA
+    const [geo, ua] = await Promise.all([
+      lookupIP(ip),
+      Promise.resolve(req.headers['user-agent'] || ''),
+    ]);
     const network_id = buildNetworkId(ip, geo.isp);
+    const parsed     = parseUA(ua);
 
-    // 4. Parse user-agent
-    const ua      = req.headers['user-agent'] || '';
-    const parsed  = parseUA(ua);
+    // 4. Pre-fetch similarity data (async, BEFORE classify so DB is pre-write state)
+    const [similarDevices, recentNetworks] = await Promise.all([
+      getSimilarDevices(geo.city, geo.isp, device_id),
+      fingerprint_id
+        ? getRecentNetworksForFingerprint(fingerprint_id, 4)
+        : Promise.resolve([]),
+    ]);
 
-    // 5. Classify the visit BEFORE we write (so we see "known" state)
-    const classResult = classify({ device_id, network_id, fingerprint_id });
+    // 5. Build currentDevice + currentNetwork objects for the risk engine
+    const currentDevice = {
+      device_id,
+      screen_resolution: screen_resolution || null,
+      timezone:          timezone          || null,
+      browser:           parsed.browser    || null,
+      os:                parsed.os         || null,
+      language:          language          || null,
+      cpu_cores:         cpu_cores         || null,
+      memory_gb:         memory_gb         || null,
+      platform:          platform          || null,
+    };
 
-    // 6. Upsert network + device records
-    upsertNetwork({
+    const currentNetwork = {
+      ip,
+      isp:  geo.isp  || null,
+      city: geo.city || null,
+    };
+
+    // 6. Run correlation + risk classifier (sync — uses pre-fetched data via closures)
+    const classResult = classify({
+      device_id,
+      network_id,
+      fingerprint_id,
+      currentDevice,
+      currentNetwork,
+      getSimilarDevices:               () => similarDevices,
+      getRecentNetworksForFingerprint: () => recentNetworks,
+    });
+
+    // 7. Persist network + device (updates in-memory caches too)
+    await upsertNetwork({
       network_id,
       ip,
       isp:     geo.isp,
@@ -72,7 +109,7 @@ router.post('/visit', async (req, res) => {
       city:    geo.city,
     });
 
-    upsertDevice({
+    await upsertDevice({
       device_id,
       fingerprint_id,
       user_agent:        ua,
@@ -89,39 +126,34 @@ router.post('/visit', async (req, res) => {
       cpu_cores:         cpu_cores         || null,
       memory_gb:         memory_gb         || null,
       touch_support:     !!touch_support,
+      last_ip:           ip,
+      last_isp:          geo.isp  || null,
+      last_city:         geo.city || null,
     });
 
-    // 7. Record the visit
+    // 8. Record visit with risk data
     const rawData = {
-      ip,
-      geo,
-      ua,
-      device_id,
-      fingerprint_id,
-      screen_resolution,
-      color_depth,
-      timezone,
-      language,
-      platform,
-      cpu_cores,
-      memory_gb,
-      touch_support,
+      ip, geo, ua, device_id, fingerprint_id,
+      screen_resolution, color_depth, timezone, language,
+      platform, cpu_cores, memory_gb, touch_support,
       ...parsed,
     };
 
-    insertVisit({
+    await insertVisit({
       device_id,
       network_id,
       fingerprint_id,
-      correlation: classResult.correlation,
-      raw_data:    rawData,
+      correlation:  classResult.correlation,
+      risk_score:   classResult.riskScore,
+      risk_factors: JSON.stringify(classResult.riskFactors),
+      raw_data:     rawData,
     });
 
-    // 8. Fetch the current network label (if any)
-    const networks = getNetworkSummaries();
+    // 9. Fetch current network label
+    const networks = await getNetworkSummaries();
     const netInfo  = networks.find(n => n.network_id === network_id) || {};
 
-    // 9. Build response
+    // 10. Respond
     const color = COLORS[classResult.correlation];
 
     res.json({
@@ -131,6 +163,8 @@ router.post('/visit', async (req, res) => {
       knownDevice:      classResult.knownDevice,
       knownNetwork:     classResult.knownNetwork,
       fingerprintMatch: classResult.fingerprintMatch,
+      riskScore:        classResult.riskScore,
+      riskReasons:      classResult.riskReasons,   // [{label, detail, score}]
       color,
       device: {
         device_id,
@@ -151,14 +185,14 @@ router.post('/visit', async (req, res) => {
       network: {
         network_id,
         ip,
-        isp:           geo.isp,
-        city:          geo.city,
-        region:        geo.region,
-        country:       geo.country,
-        lat:           geo.lat,
-        lon:           geo.lon,
-        label:         netInfo.label         || null,
-        visit_count:   netInfo.total_visits   || 1,
+        isp:            geo.isp,
+        city:           geo.city,
+        region:         geo.region,
+        country:        geo.country,
+        lat:            geo.lat,
+        lon:            geo.lon,
+        label:          netInfo.label          || null,
+        visit_count:    netInfo.total_visits   || 1,
         unique_devices: netInfo.unique_devices || 1,
       },
     });
@@ -170,12 +204,12 @@ router.post('/visit', async (req, res) => {
 });
 
 // ─── PATCH /api/network-label ─────────────────────────────────────────────────
-router.patch('/network-label', (req, res) => {
+router.patch('/network-label', async (req, res) => {
   const { network_id, label } = req.body;
   if (!network_id || !label) {
     return res.status(400).json({ error: 'network_id and label are required' });
   }
-  updateNetworkLabel(network_id, label.trim().slice(0, 64));
+  await updateNetworkLabel(network_id, label.trim().slice(0, 64));
   res.json({ ok: true });
 });
 

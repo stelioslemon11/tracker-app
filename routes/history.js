@@ -20,11 +20,10 @@ const {
 const { COLORS } = require('../lib/correlation');
 
 // ─── GET /api/history ─────────────────────────────────────────────────────────
-router.get('/history', (req, res) => {
-  const limit = Math.min(parseInt(req.query.limit) || 50, 200);
-  const visits = getRecentVisits(limit);
+router.get('/history', async (req, res) => {
+  const limit  = Math.min(parseInt(req.query.limit) || 50, 200);
+  const visits = await getRecentVisits(limit);
 
-  // Attach color metadata so the frontend doesn't have to know the mapping
   const enriched = visits.map(v => ({
     ...v,
     color: COLORS[v.correlation] || COLORS.RED,
@@ -34,18 +33,18 @@ router.get('/history', (req, res) => {
 });
 
 // ─── GET /api/devices ─────────────────────────────────────────────────────────
-router.get('/devices', (req, res) => {
-  res.json(getDeviceSummaries());
+router.get('/devices', async (req, res) => {
+  res.json(await getDeviceSummaries());
 });
 
 // ─── GET /api/networks ────────────────────────────────────────────────────────
-router.get('/networks', (req, res) => {
-  res.json(getNetworkSummaries());
+router.get('/networks', async (req, res) => {
+  res.json(await getNetworkSummaries());
 });
 
 // ─── GET /api/stats ───────────────────────────────────────────────────────────
-router.get('/stats', (req, res) => {
-  const stats = getStats();
+router.get('/stats', async (req, res) => {
+  const stats = await getStats();
   res.json({ ...stats, colors: COLORS });
 });
 
