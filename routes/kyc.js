@@ -1,290 +1,255 @@
 /**
- * routes/kyc.js
+ * routes/kyc.js  —  Manual KYC review system (Greek market)
  *
- * KYC (Know Your Customer) routes — Greek market, powered by Veriff.
+ * POST /api/kyc/submit              user submits details + base64 photos
+ * GET  /api/kyc/status/:device_id   user polls their application status
+ * GET  /api/kyc/admin               operator review queue  (requires ?pw=ADMIN_PASSWORD)
+ * POST /api/kyc/review/:id          operator approves / rejects
  *
- * POST /api/kyc/start            — collect name/DOB, create Veriff session
- * POST /api/kyc/webhook          — receive Veriff decision events (raw body for HMAC)
- * POST /api/kyc/address          — submit address proof (manual review)
- * GET  /api/kyc/status/:device_id — current KYC status for a device
- * GET  /api/kyc/admin            — all applications (admin review queue)
- *
- * Environment variables required:
- *   VERIFF_API_KEY   — Veriff publishable/API key
- *   VERIFF_SECRET    — Veriff secret key (for webhook HMAC)
- *   APP_URL          — public base URL (e.g. https://tracker-app-qeoi.onrender.com)
+ * Greek-specific validations (all server-side, no external API):
+ *   • ΑΦΜ  — 9-digit checksum algorithm
+ *   • ΑΜΚΑ — first 6 digits encode DDMMYY, must match stated DOB
+ *   • ΑΔΤ  — format check: 1–2 letters + 6–7 digits
+ *   • Age  — minimum 21 years (ΕΕΕΠ regulation)
+ *   • Duplicate ΑΔΤ / ΑΦΜ across different devices → fraud signal
  */
 
 'use strict';
 
 const express = require('express');
-const crypto  = require('crypto');
-const fetch   = require('node-fetch');
 const router  = express.Router();
 
 const {
-  getKYCApplication,
-  createKYCApplication,
-  attachVeriffSession,
-  updateKYCFromWebhook,
-  updateKYCAddress,
-  getAllKYCApplications,
+  submitKYCManual,
+  getKYCManual,
+  getAllKYCManual,
+  reviewKYCManual,
+  checkKYCDuplicates,
 } = require('../database');
 
-const VERIFF_API_KEY = process.env.VERIFF_API_KEY || '';
-const VERIFF_SECRET  = process.env.VERIFF_SECRET  || '';
-const APP_URL        = (process.env.APP_URL || 'https://tracker-app-qeoi.onrender.com').replace(/\/$/, '');
-const VERIFF_BASE    = 'https://stationapi.veriff.com/v1';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+const MIN_AGE        = 21;
+const MAX_IMG_BYTES  = 3 * 1024 * 1024; // 3 MB per image (base64 ~4MB)
 
-// Minimum age for Greek online gambling (ΕΕΕΠ regulation)
-const MIN_AGE_YEARS = 21;
+// ─── Greek validation functions ───────────────────────────────────────────────
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+/**
+ * ΑΦΜ checksum algorithm (Greek tax number, 9 digits).
+ * Returns { valid: bool, reason: string }
+ */
+function validateAFM(afm) {
+  const s = String(afm || '').replace(/\s/g, '');
+  if (!/^\d{9}$/.test(s))       return { valid: false, reason: 'Πρέπει να είναι 9 ψηφία' };
+  if (s === '000000000')         return { valid: false, reason: 'Μη έγκυρο ΑΦΜ' };
 
-function isConfigured() {
-  return !!(VERIFF_API_KEY && VERIFF_SECRET);
+  let sum = 0;
+  for (let i = 0; i < 8; i++) {
+    sum += parseInt(s[i]) * Math.pow(2, 8 - i);
+  }
+  const check = (sum % 11) % 10;
+  if (check !== parseInt(s[8])) return { valid: false, reason: 'Λανθασμένο ψηφίο ελέγχου' };
+  return { valid: true, reason: 'Έγκυρο' };
 }
 
 /**
- * Validate Greek date of birth and return age in years.
- * Returns null if invalid format or impossible date.
+ * ΑΜΚΑ validation: 11 digits, first 6 = DDMMYY of birth.
+ * Returns { valid: bool, dobMatch: bool|null, reason: string }
  */
-function parseAndValidateDOB(dob) {
+function validateAMKA(amka, dob) {
+  const s = String(amka || '').replace(/\s/g, '');
+  if (!/^\d{11}$/.test(s)) return { valid: false, dobMatch: null, reason: 'Πρέπει να είναι 11 ψηφία' };
+
+  const dd = s.slice(0, 2);
+  const mm = s.slice(2, 4);
+  const yy = s.slice(4, 6);
+
+  let dobMatch = null;
+  if (dob) {
+    const parts = dob.split('-'); // YYYY-MM-DD
+    if (parts.length === 3) {
+      const dobDD = parts[2].padStart(2, '0');
+      const dobMM = parts[1].padStart(2, '0');
+      const dobYY = parts[0].slice(-2);
+      dobMatch = dd === dobDD && mm === dobMM && yy === dobYY;
+    }
+  }
+
+  return {
+    valid:    true,
+    dobMatch,
+    reason:   dobMatch === false
+      ? `Ασυμφωνία ημερομηνίας: ΑΜΚΑ υποδηλώνει ${dd}/${mm}/${yy}`
+      : 'Έγκυρο',
+  };
+}
+
+/**
+ * ΑΔΤ format check: 1–2 letters (Greek or Latin) followed by 6–7 digits.
+ */
+function validateADT(adt) {
+  const s = String(adt || '').replace(/\s/g, '').toUpperCase();
+  const ok = /^[A-ZΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ]{1,2}\d{6,7}$/.test(s);
+  return {
+    valid:  ok,
+    reason: ok ? 'Έγκυρη μορφή' : 'Αναμένεται: 1–2 γράμματα + 6–7 ψηφία (π.χ. ΑΒ 123456)',
+  };
+}
+
+/**
+ * Age check from DOB string (YYYY-MM-DD). Returns age in years, or null.
+ */
+function calcAge(dob) {
   if (!dob) return null;
   const d = new Date(dob);
-  if (isNaN(d.getTime())) return null;
+  if (isNaN(d)) return null;
   const now  = new Date();
-  let age = now.getFullYear() - d.getFullYear();
-  const m = now.getMonth() - d.getMonth();
+  let age    = now.getFullYear() - d.getFullYear();
+  const m    = now.getMonth() - d.getMonth();
   if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--;
   return age;
 }
 
-/**
- * Map Veriff status string + code to our internal status.
- * https://developers.veriff.com/#verification-session-status-codes
- */
-function mapVeriffStatus(veriffStatus, code) {
-  if (veriffStatus === 'approved')                    return 'APPROVED';
-  if (veriffStatus === 'declined' && code === 9102)   return 'RESUBMISSION_REQUESTED';
-  if (veriffStatus === 'declined')                    return 'DECLINED';
-  if (veriffStatus === 'expired')                     return 'EXPIRED';
-  if (veriffStatus === 'abandoned')                   return 'ABANDONED';
-  if (veriffStatus === 'submitted')                   return 'PENDING';
-  if (veriffStatus === 'started')                     return 'SESSION_CREATED';
-  return 'PENDING';
-}
-
-// ─── POST /api/kyc/start ──────────────────────────────────────────────────────
-// Body: { device_id, first_name, last_name, dob, id_type }
-// id_type: "ID_CARD" | "PASSPORT"
-router.post('/kyc/start', async (req, res) => {
+// ─── POST /api/kyc/submit ─────────────────────────────────────────────────────
+router.post('/kyc/submit', async (req, res) => {
   try {
-    const { device_id, first_name, last_name, dob, id_type = 'ID_CARD' } = req.body || {};
+    const {
+      device_id, first_name, last_name, dob,
+      adt, afm, amka,
+      id_front, id_back, selfie,   // base64 strings from client
+    } = req.body || {};
 
-    // Validation
-    if (!device_id)   return res.status(400).json({ error: 'device_id required' });
-    if (!first_name)  return res.status(400).json({ error: 'first_name required' });
-    if (!last_name)   return res.status(400).json({ error: 'last_name required' });
-    if (!dob)         return res.status(400).json({ error: 'dob required (YYYY-MM-DD)' });
+    // Required fields
+    if (!device_id)  return res.status(400).json({ error: 'device_id required' });
+    if (!first_name) return res.status(400).json({ error: 'Απαιτείται όνομα' });
+    if (!last_name)  return res.status(400).json({ error: 'Απαιτείται επώνυμο' });
+    if (!dob)        return res.status(400).json({ error: 'Απαιτείται ημερομηνία γέννησης' });
 
-    // Age gate — 21+ for Greek online gambling
-    const age = parseAndValidateDOB(dob);
-    if (age === null) return res.status(400).json({ error: 'Invalid date of birth' });
-    if (age < MIN_AGE_YEARS) {
+    // Age gate
+    const age = calcAge(dob);
+    if (age === null) return res.status(400).json({ error: 'Μη έγκυρη ημερομηνία γέννησης' });
+    if (age < MIN_AGE) {
       return res.status(403).json({
-        error: `Minimum age is ${MIN_AGE_YEARS} years. You are ${age} years old.`,
+        error: `Ελάχιστη ηλικία ${MIN_AGE} ετών (ΕΕΕΠ). Είστε ${age} ετών.`,
         code:  'UNDERAGE',
       });
     }
 
-    // Check if already approved
-    const existing = await getKYCApplication(device_id);
-    if (existing?.status === 'APPROVED') {
-      return res.json({ status: 'APPROVED', message: 'KYC already completed and approved.' });
+    // Image size guard
+    for (const [name, img] of [['id_front', id_front], ['id_back', id_back], ['selfie', selfie]]) {
+      if (img && img.length > MAX_IMG_BYTES * 1.4) { // base64 is ~1.37× binary
+        return res.status(413).json({ error: `Η εικόνα ${name} είναι πολύ μεγάλη (max 3MB)` });
+      }
     }
 
-    // Create application record
-    const app = await createKYCApplication({ device_id, first_name, last_name, dob, id_type });
+    // Run validations
+    const afmResult  = afm  ? validateAFM(afm)          : null;
+    const amkaResult = amka ? validateAMKA(amka, dob)   : null;
+    const adtResult  = adt  ? validateADT(adt)           : null;
 
-    // ── Veriff session creation ───────────────────────────────────────────────
-    if (!isConfigured()) {
-      // Demo mode — no Veriff keys, simulate the flow
-      await attachVeriffSession(app.id, `DEMO-${Date.now()}`);
-      return res.json({
-        ok:          true,
-        demo:        true,
-        sessionUrl:  null,
-        message:     'Demo mode: set VERIFF_API_KEY + VERIFF_SECRET in Render to enable real verification.',
-      });
-    }
+    // Cross-account duplicate check
+    const dupes = await checkKYCDuplicates(device_id, adt || null, afm || null);
 
-    const veriffPayload = {
-      verification: {
-        callback:   `${APP_URL}/api/kyc/webhook`,
-        person: {
-          firstName: first_name.trim(),
-          lastName:  last_name.trim(),
-          dateOfBirth: dob,
-        },
-        document: {
-          type:    id_type === 'PASSPORT' ? 'PASSPORT' : 'ID_CARD',
-          country: 'GR',
-        },
-        vendorData:  device_id,
-        timestamp:   new Date().toISOString(),
-      },
+    const validations = {
+      age,
+      afm:  afmResult,
+      amka: amkaResult,
+      adt:  adtResult,
+      duplicateADT: dupes.adt,
+      duplicateAFM: dupes.afm,
+      hasIdFront:  !!id_front,
+      hasIdBack:   !!id_back,
+      hasSelfie:   !!selfie,
     };
 
-    const veriffRes = await fetch(`${VERIFF_BASE}/sessions`, {
-      method:  'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-AUTH-CLIENT': VERIFF_API_KEY,
-      },
-      body: JSON.stringify(veriffPayload),
+    // Insert / update application
+    const id = await submitKYCManual({
+      device_id,
+      first_name: first_name.trim(),
+      last_name:  last_name.trim(),
+      dob,
+      adt:  adt  ? String(adt).replace(/\s/g, '').toUpperCase()  : null,
+      afm:  afm  ? String(afm).replace(/\s/g, '')                 : null,
+      amka: amka ? String(amka).replace(/\s/g, '')                : null,
+      id_front: id_front || null,
+      id_back:  id_back  || null,
+      selfie:   selfie   || null,
+      validations,
     });
-
-    if (!veriffRes.ok) {
-      const errText = await veriffRes.text();
-      console.error('[kyc] Veriff session creation failed:', veriffRes.status, errText);
-      return res.status(502).json({ error: 'Failed to create verification session. Please try again.' });
-    }
-
-    const veriffData = await veriffRes.json();
-    const { id: sessionId, url: sessionUrl } = veriffData.verification || {};
-
-    if (!sessionId || !sessionUrl) {
-      return res.status(502).json({ error: 'Invalid response from verification provider.' });
-    }
-
-    await attachVeriffSession(app.id, sessionId);
 
     res.json({
-      ok:         true,
-      sessionId,
-      sessionUrl,
+      ok: true,
+      id,
+      validations,
+      warnings: [
+        ...(afmResult  && !afmResult.valid          ? [`ΑΦΜ: ${afmResult.reason}`]          : []),
+        ...(amkaResult && !amkaResult.valid          ? [`ΑΜΚΑ: ${amkaResult.reason}`]         : []),
+        ...(amkaResult && amkaResult.dobMatch===false? [`ΑΜΚΑ: ${amkaResult.reason}`]         : []),
+        ...(adtResult  && !adtResult.valid           ? [`ΑΔΤ: ${adtResult.reason}`]           : []),
+        ...(dupes.adt.length > 0 ? [`ΑΔΤ χρησιμοποιείται σε ${dupes.adt.length} άλλο(α) λογαριασμό(ους)`] : []),
+        ...(dupes.afm.length > 0 ? [`ΑΦΜ χρησιμοποιείται σε ${dupes.afm.length} άλλο(α) λογαριασμό(ους)`] : []),
+      ],
     });
-
   } catch (err) {
-    console.error('[kyc] start error:', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// ─── POST /api/kyc/webhook ────────────────────────────────────────────────────
-// Receives raw body — HMAC-SHA256 verified against VERIFF_SECRET
-// Veriff sends: decision events, started events, submitted events
-router.post('/kyc/webhook', express.raw({ type: '*/*' }), async (req, res) => {
-  try {
-    const rawBody  = req.body;
-    const sigHeader = (req.headers['x-hmac-signature'] || '').toLowerCase();
-
-    // HMAC verification (skip in demo mode)
-    if (isConfigured() && VERIFF_SECRET) {
-      const expected = crypto
-        .createHmac('sha256', VERIFF_SECRET)
-        .update(rawBody)
-        .digest('hex')
-        .toLowerCase();
-
-      if (expected !== sigHeader) {
-        console.warn('[kyc] Webhook HMAC mismatch — rejected');
-        return res.status(401).json({ error: 'Invalid signature' });
-      }
-    }
-
-    const payload = JSON.parse(rawBody.toString('utf8'));
-    console.log('[kyc] Webhook received:', JSON.stringify(payload).slice(0, 200));
-
-    // ── Decision event ────────────────────────────────────────────────────────
-    if (payload.verification) {
-      const v = payload.verification;
-      const internalStatus = mapVeriffStatus(v.status, v.code);
-
-      let declineReason = null;
-      if (internalStatus === 'DECLINED' || internalStatus === 'RESUBMISSION_REQUESTED') {
-        declineReason = v.reason || v.comment || 'Verification could not be completed';
-      }
-
-      await updateKYCFromWebhook({
-        veriff_session_id: v.id,
-        status:            internalStatus,
-        veriff_code:       v.code  || null,
-        veriff_decision:   v.status,
-        veriff_person:     v.person || null,
-        decline_reason:    declineReason,
-      });
-
-      console.log(`[kyc] Session ${v.id} → ${internalStatus} (code ${v.code})`);
-    }
-
-    res.json({ status: 'ok' });
-  } catch (err) {
-    console.error('[kyc] webhook error:', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// ─── POST /api/kyc/address ────────────────────────────────────────────────────
-// Body: { device_id, address_line1, address_city, address_postcode }
-router.post('/kyc/address', async (req, res) => {
-  try {
-    const { device_id, address_line1, address_city, address_postcode } = req.body || {};
-
-    if (!device_id)      return res.status(400).json({ error: 'device_id required' });
-    if (!address_line1)  return res.status(400).json({ error: 'address_line1 required' });
-    if (!address_city)   return res.status(400).json({ error: 'address_city required' });
-    if (!address_postcode) return res.status(400).json({ error: 'address_postcode required' });
-
-    await updateKYCAddress({ device_id, address_line1, address_city, address_postcode });
-    res.json({ ok: true, message: 'Address submitted for review.' });
-  } catch (err) {
-    console.error('[kyc] address error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('[kyc/submit]', err);
+    res.status(500).json({ error: 'Σφάλμα διακομιστή' });
   }
 });
 
 // ─── GET /api/kyc/status/:device_id ──────────────────────────────────────────
 router.get('/kyc/status/:device_id', async (req, res) => {
   try {
-    const app = await getKYCApplication(req.params.device_id);
-    if (!app) {
-      return res.json({ status: 'NOT_STARTED', configured: isConfigured() });
-    }
+    const app = await getKYCManual(req.params.device_id);
+    if (!app) return res.json({ status: 'NOT_STARTED' });
 
-    // Parse veriff_person JSON if present
-    let person = null;
-    if (app.veriff_person) {
-      try { person = JSON.parse(app.veriff_person); } catch (_) {}
-    }
+    let validations = null;
+    try { validations = app.validations ? JSON.parse(app.validations) : null; } catch (_) {}
 
     res.json({
-      status:          app.status,
-      id_type:         app.id_type,
-      address_status:  app.address_status,
-      decline_reason:  app.decline_reason || null,
-      person,
-      created_at:      app.created_at,
-      updated_at:      app.updated_at,
-      decision_at:     app.decision_at,
-      configured:      isConfigured(),
+      status:         app.status,
+      first_name:     app.first_name,
+      last_name:      app.last_name,
+      operator_notes: app.operator_notes,
+      validations,
+      created_at:     app.created_at,
+      updated_at:     app.updated_at,
+      reviewed_at:    app.reviewed_at,
     });
   } catch (err) {
-    console.error('[kyc] status error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('[kyc/status]', err);
+    res.status(500).json({ error: 'Σφάλμα διακομιστή' });
   }
 });
 
 // ─── GET /api/kyc/admin ───────────────────────────────────────────────────────
-// Returns all applications for a manual review dashboard
 router.get('/kyc/admin', async (req, res) => {
+  if (req.query.pw !== ADMIN_PASSWORD) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
   try {
-    const apps = await getAllKYCApplications(200);
+    const status = req.query.status || null; // filter: PENDING, APPROVED, REJECTED
+    const apps   = await getAllKYCManual(status, 200);
     res.json(apps);
   } catch (err) {
-    console.error('[kyc] admin error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('[kyc/admin]', err);
+    res.status(500).json({ error: 'Σφάλμα διακομιστή' });
+  }
+});
+
+// ─── POST /api/kyc/review/:id ─────────────────────────────────────────────────
+router.post('/kyc/review/:id', async (req, res) => {
+  if (req.query.pw !== ADMIN_PASSWORD && req.body?.pw !== ADMIN_PASSWORD) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  try {
+    const { status, operator_notes } = req.body || {};
+    if (!['APPROVED','REJECTED'].includes(status)) {
+      return res.status(400).json({ error: 'status must be APPROVED or REJECTED' });
+    }
+    await reviewKYCManual(Number(req.params.id), { status, operator_notes });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[kyc/review]', err);
+    res.status(500).json({ error: 'Σφάλμα διακομιστή' });
   }
 });
 

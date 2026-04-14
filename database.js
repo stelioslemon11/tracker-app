@@ -129,6 +129,30 @@ const SCHEMA_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_kyc_device    ON kyc_applications(device_id)`,
   `CREATE INDEX IF NOT EXISTS idx_kyc_session   ON kyc_applications(veriff_session_id)`,
   `CREATE INDEX IF NOT EXISTS idx_kyc_status    ON kyc_applications(status)`,
+  /* ── Manual KYC review table ── */
+  `CREATE TABLE IF NOT EXISTS kyc_manual (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id       TEXT NOT NULL,
+    first_name      TEXT NOT NULL,
+    last_name       TEXT NOT NULL,
+    dob             TEXT NOT NULL,
+    adt             TEXT,
+    afm             TEXT,
+    amka            TEXT,
+    id_front        TEXT,
+    id_back         TEXT,
+    selfie          TEXT,
+    validations     TEXT,
+    status          TEXT NOT NULL DEFAULT 'PENDING',
+    operator_notes  TEXT,
+    reviewed_at     TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_kyc_manual_device ON kyc_manual(device_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_kyc_manual_status ON kyc_manual(status)`,
+  `CREATE INDEX IF NOT EXISTS idx_kyc_manual_adt    ON kyc_manual(adt)`,
+  `CREATE INDEX IF NOT EXISTS idx_kyc_manual_afm    ON kyc_manual(afm)`,
 ];
 
 // Safe migrations — add new columns to existing databases (fail silently if already present)
@@ -1007,6 +1031,148 @@ async function getAllKYCApplications(limit = 100) {
   }
 }
 
+// ─── kyc_manual ───────────────────────────────────────────────────────────────
+
+async function submitKYCManual({ device_id, first_name, last_name, dob, adt, afm, amka, id_front, id_back, selfie, validations }) {
+  const vals = JSON.stringify(validations || {});
+  if (USE_TURSO) {
+    await turso.execute({
+      sql: `INSERT INTO kyc_manual
+              (device_id,first_name,last_name,dob,adt,afm,amka,id_front,id_back,selfie,validations,status)
+            VALUES (?,?,?,?,?,?,?,?,?,?,'PENDING')
+            ON CONFLICT DO NOTHING`,
+      // upsert by device_id — if there's already a PENDING, replace it
+      args: [device_id,first_name,last_name,dob,adt||null,afm||null,amka||null,
+             id_front||null,id_back||null,selfie||null,vals],
+    });
+    // If device already has a non-approved application, update it instead
+    const existing = await turso.execute({
+      sql: `SELECT id,status FROM kyc_manual WHERE device_id=? ORDER BY id DESC LIMIT 1`,
+      args: [device_id],
+    });
+    const row = tursoFirst(existing);
+    if (row && row.status !== 'APPROVED') {
+      await turso.execute({
+        sql: `UPDATE kyc_manual SET
+                first_name=?,last_name=?,dob=?,adt=?,afm=?,amka=?,
+                id_front=?,id_back=?,selfie=?,validations=?,
+                status='PENDING',operator_notes=NULL,reviewed_at=NULL,
+                updated_at=datetime('now')
+              WHERE id=?`,
+        args: [first_name,last_name,dob,adt||null,afm||null,amka||null,
+               id_front||null,id_back||null,selfie||null,vals,row.id],
+      });
+      return row.id;
+    }
+    // fresh insert
+    const ins = await turso.execute({
+      sql: `INSERT INTO kyc_manual
+              (device_id,first_name,last_name,dob,adt,afm,amka,id_front,id_back,selfie,validations)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      args: [device_id,first_name,last_name,dob,adt||null,afm||null,amka||null,
+             id_front||null,id_back||null,selfie||null,vals],
+    });
+    return Number(ins.lastInsertRowid);
+  } else {
+    const existing = sqlGet(`SELECT id,status FROM kyc_manual WHERE device_id=? ORDER BY id DESC LIMIT 1`,[device_id]);
+    if (existing && existing.status !== 'APPROVED') {
+      sqlRun(`UPDATE kyc_manual SET
+                first_name=?,last_name=?,dob=?,adt=?,afm=?,amka=?,
+                id_front=?,id_back=?,selfie=?,validations=?,
+                status='PENDING',operator_notes=NULL,reviewed_at=NULL,
+                updated_at=datetime('now')
+              WHERE id=?`,
+        [first_name,last_name,dob,adt||null,afm||null,amka||null,
+         id_front||null,id_back||null,selfie||null,vals,existing.id]);
+      return existing.id;
+    }
+    sqlRun(`INSERT INTO kyc_manual
+              (device_id,first_name,last_name,dob,adt,afm,amka,id_front,id_back,selfie,validations)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      [device_id,first_name,last_name,dob,adt||null,afm||null,amka||null,
+       id_front||null,id_back||null,selfie||null,vals]);
+    return sqlGet('SELECT last_insert_rowid() AS id').id;
+  }
+}
+
+async function getKYCManual(device_id) {
+  const sql = `SELECT id,device_id,first_name,last_name,dob,adt,afm,amka,
+                      validations,status,operator_notes,reviewed_at,created_at,updated_at
+               FROM kyc_manual WHERE device_id=? ORDER BY id DESC LIMIT 1`;
+  if (USE_TURSO) {
+    const rs = await turso.execute({ sql, args: [device_id] });
+    return tursoFirst(rs) || null;
+  } else {
+    return sqlGet(sql, [device_id]) || null;
+  }
+}
+
+async function getAllKYCManual(statusFilter = null, limit = 200) {
+  const where = statusFilter ? `WHERE km.status=?` : '';
+  const sql = `
+    SELECT km.id, km.device_id, km.first_name, km.last_name, km.dob,
+           km.adt, km.afm, km.amka,
+           km.id_front, km.id_back, km.selfie,
+           km.validations, km.status, km.operator_notes,
+           km.reviewed_at, km.created_at, km.updated_at,
+           d.browser, d.os, d.last_ip, d.last_city, d.last_isp
+    FROM kyc_manual km
+    LEFT JOIN devices d ON d.device_id = km.device_id
+    ${where}
+    ORDER BY km.updated_at DESC
+    LIMIT ?
+  `;
+  const args = statusFilter ? [statusFilter, limit] : [limit];
+  if (USE_TURSO) {
+    const rs = await turso.execute({ sql, args });
+    return tursoRows(rs);
+  } else {
+    return sqlAll(sql, args);
+  }
+}
+
+async function reviewKYCManual(id, { status, operator_notes }) {
+  const now = new Date().toISOString().replace('T',' ').slice(0,19);
+  if (USE_TURSO) {
+    await turso.execute({
+      sql: `UPDATE kyc_manual SET status=?,operator_notes=?,reviewed_at=?,updated_at=datetime('now') WHERE id=?`,
+      args: [status, operator_notes||null, now, id],
+    });
+  } else {
+    sqlRun(`UPDATE kyc_manual SET status=?,operator_notes=?,reviewed_at=?,updated_at=datetime('now') WHERE id=?`,
+      [status, operator_notes||null, now, id]);
+  }
+}
+
+/** Check if the same ΑΔΤ or ΑΦΜ already exists on a DIFFERENT device (duplicate = fraud) */
+async function checkKYCDuplicates(device_id, adt, afm) {
+  const result = { adt: [], afm: [] };
+
+  if (adt) {
+    const sql = `SELECT device_id,first_name,last_name,status,created_at FROM kyc_manual
+                 WHERE adt=? AND device_id != ? AND status != 'REJECTED' LIMIT 10`;
+    if (USE_TURSO) {
+      const rs = await turso.execute({ sql, args: [adt, device_id] });
+      result.adt = tursoRows(rs);
+    } else {
+      result.adt = sqlAll(sql, [adt, device_id]);
+    }
+  }
+
+  if (afm) {
+    const sql = `SELECT device_id,first_name,last_name,status,created_at FROM kyc_manual
+                 WHERE afm=? AND device_id != ? AND status != 'REJECTED' LIMIT 10`;
+    if (USE_TURSO) {
+      const rs = await turso.execute({ sql, args: [afm, device_id] });
+      result.afm = tursoRows(rs);
+    } else {
+      result.afm = sqlAll(sql, [afm, device_id]);
+    }
+  }
+
+  return result;
+}
+
 async function updateNetworkLabel(network_id, label) {
   if (USE_TURSO) {
     await turso.execute({
@@ -1035,6 +1201,7 @@ module.exports = {
   updateNetworkLabel,
   upsertPaymentMethod,
   getGraphLinks,
+  // ── kyc_manual helpers ──────────────────────────────────────────────────────
   getBINCache,
   setBINCache,
   getDeviceCluster,
@@ -1044,4 +1211,10 @@ module.exports = {
   updateKYCFromWebhook,
   updateKYCAddress,
   getAllKYCApplications,
+  // kyc_manual
+  submitKYCManual,
+  getKYCManual,
+  getAllKYCManual,
+  reviewKYCManual,
+  checkKYCDuplicates,
 };

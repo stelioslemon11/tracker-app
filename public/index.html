@@ -125,181 +125,137 @@
 
   <!-- ══════════════════════════════ TAB: KYC ════════════════════════════ -->
   <div id="tab-kyc" class="tab-panel">
-
-    <!-- Greek flag header -->
-    <div class="kyc-header">
-      <div class="kyc-header-flag">🇬🇷</div>
-      <div>
-        <div class="kyc-header-title">Identity Verification</div>
-        <div class="kyc-header-sub">Greek market · ΕΕΕΠ compliant · Minimum age 21</div>
-      </div>
-      <div id="kyc-status-badge" class="kyc-badge kyc-badge-grey">Not started</div>
-    </div>
-
-    <!-- Step tracker -->
-    <div class="kyc-steps" id="kyc-steps">
-      <div class="kyc-step" id="kyc-step-id">
-        <div class="kyc-step-num">1</div>
-        <div class="kyc-step-label">ID Verification</div>
-      </div>
-      <div class="kyc-step-line"></div>
-      <div class="kyc-step" id="kyc-step-addr">
-        <div class="kyc-step-num">2</div>
-        <div class="kyc-step-label">Address Proof</div>
-      </div>
-      <div class="kyc-step-line"></div>
-      <div class="kyc-step" id="kyc-step-done">
-        <div class="kyc-step-num">✓</div>
-        <div class="kyc-step-label">Complete</div>
-      </div>
-    </div>
-
-    <!-- Not configured notice -->
-    <div id="kyc-not-configured" class="kyc-notice kyc-notice-info" style="display:none">
-      ⚙️ <strong>Demo mode</strong> — KYC is fully built but Veriff credentials are not yet configured.
-      See setup instructions below to activate real ID scanning.
-    </div>
-
-    <!-- ── STEP 1: Identity form ─────────────────────────────────────── -->
-    <div id="kyc-form-section" class="kyc-card" style="display:none">
-      <h3 class="kyc-card-title">Step 1 — Identity Document</h3>
-      <p class="kyc-card-desc">
-        Enter your details as they appear on your document. You'll then be guided through scanning
-        your ID card or passport and a short liveness check.
-      </p>
-
-      <div class="kyc-form">
-        <div class="kyc-row">
-          <div class="kyc-field">
-            <label>First name (as on ID)</label>
-            <input id="kyc-first" type="text" placeholder="Γιώργος" />
-          </div>
-          <div class="kyc-field">
-            <label>Last name (as on ID)</label>
-            <input id="kyc-last" type="text" placeholder="Παπαδόπουλος" />
-          </div>
+    <!-- USER VIEW -->
+    <div id="kyc-user-view">
+      <div class="kyc-header">
+        <div class="kyc-header-flag">🇬🇷</div>
+        <div>
+          <div class="kyc-header-title">Επαλήθευση Ταυτότητας</div>
+          <div class="kyc-header-sub">Ελληνική αγορά · ΕΕΕΠ · Ελάχιστη ηλικία 21 ετών</div>
         </div>
-
-        <div class="kyc-row">
-          <div class="kyc-field">
-            <label>Date of birth</label>
-            <input id="kyc-dob" type="date" max="" />
-          </div>
-          <div class="kyc-field">
-            <label>Document type</label>
-            <select id="kyc-idtype">
-              <option value="ID_CARD">Greek ID Card (Αστυνομική Ταυτότητα)</option>
-              <option value="PASSPORT">Passport (Διαβατήριο)</option>
-            </select>
-          </div>
-        </div>
-
-        <div id="kyc-age-error" class="kyc-notice kyc-notice-danger" style="display:none">
-          ⛔ You must be at least 21 years old to register on this platform (ΕΕΕΠ regulation).
-        </div>
-
-        <button id="kyc-start-btn" class="kyc-btn-primary">
-          Continue to ID Scan →
-        </button>
-      </div>
-    </div>
-
-    <!-- ── STEP 1: Pending / in progress ────────────────────────────── -->
-    <div id="kyc-pending-section" class="kyc-card" style="display:none">
-      <h3 class="kyc-card-title">⏳ Verification in Progress</h3>
-      <p class="kyc-card-desc">
-        Your identity is being verified. This usually takes a few minutes.
-        This page will update automatically.
-      </p>
-      <div class="kyc-spinner-row">
-        <div class="spinner"></div>
-        <span>Waiting for verification result…</span>
-      </div>
-    </div>
-
-    <!-- ── STEP 1: Approved ──────────────────────────────────────────── -->
-    <div id="kyc-approved-section" class="kyc-card kyc-card-approved" style="display:none">
-      <div class="kyc-result-icon">✅</div>
-      <h3 class="kyc-card-title">Identity Verified</h3>
-      <p class="kyc-card-desc" id="kyc-approved-name"></p>
-    </div>
-
-    <!-- ── STEP 1: Declined ──────────────────────────────────────────── -->
-    <div id="kyc-declined-section" class="kyc-card kyc-card-declined" style="display:none">
-      <div class="kyc-result-icon">❌</div>
-      <h3 class="kyc-card-title">Verification Failed</h3>
-      <p class="kyc-card-desc" id="kyc-decline-reason">We were unable to verify your identity.</p>
-      <button id="kyc-retry-btn" class="kyc-btn-secondary">Try Again</button>
-    </div>
-
-    <!-- ── STEP 1: Resubmission needed ──────────────────────────────── -->
-    <div id="kyc-resubmit-section" class="kyc-card kyc-card-warning" style="display:none">
-      <div class="kyc-result-icon">📋</div>
-      <h3 class="kyc-card-title">Additional Documents Required</h3>
-      <p class="kyc-card-desc" id="kyc-resubmit-reason">Please re-submit with clearer images.</p>
-      <button id="kyc-resubmit-btn" class="kyc-btn-secondary">Re-submit</button>
-    </div>
-
-    <!-- ── STEP 2: Address proof ─────────────────────────────────────── -->
-    <div id="kyc-address-section" class="kyc-card" style="display:none">
-      <h3 class="kyc-card-title">Step 2 — Address Proof</h3>
-      <p class="kyc-card-desc">
-        Enter your current residential address in Greece. Our team will verify it against your
-        utility bill or bank statement. You can submit a supporting document separately by email.
-      </p>
-
-      <div id="kyc-addr-submitted" class="kyc-notice kyc-notice-ok" style="display:none">
-        ✅ Address submitted — pending manual verification.
+        <div id="kyc-status-badge" class="kyc-badge kyc-badge-grey">Δεν ξεκίνησε</div>
       </div>
 
-      <div id="kyc-addr-form">
-        <div class="kyc-form">
-          <div class="kyc-field">
-            <label>Street address</label>
-            <input id="kyc-addr1" type="text" placeholder="Λεωφόρος Αθηνών 42" />
-          </div>
-          <div class="kyc-row">
-            <div class="kyc-field">
-              <label>City</label>
-              <input id="kyc-city" type="text" placeholder="Αθήνα" />
+      <!-- Status cards (only one shown at a time) -->
+      <div id="kyc-view-form">
+        <div class="kyc-card">
+          <h3 class="kyc-card-title">Υποβολή Στοιχείων Ταυτότητας</h3>
+          <p class="kyc-card-desc">Συμπληρώστε τα στοιχεία σας όπως εμφανίζονται στο δελτίο ταυτότητας ή διαβατήριο, ανεβάστε φωτογραφίες και υποβάλετε για έλεγχο.</p>
+
+          <div class="kyc-form">
+            <div class="kyc-row">
+              <div class="kyc-field">
+                <label>Όνομα</label>
+                <input id="kyc-first" type="text" placeholder="Γιώργος" />
+              </div>
+              <div class="kyc-field">
+                <label>Επώνυμο</label>
+                <input id="kyc-last"  type="text" placeholder="Παπαδόπουλος" />
+              </div>
             </div>
-            <div class="kyc-field">
-              <label>Postal code (ΤΚ)</label>
-              <input id="kyc-postcode" type="text" placeholder="10431" maxlength="5" />
+
+            <div class="kyc-row">
+              <div class="kyc-field">
+                <label>Ημερομηνία γέννησης</label>
+                <input id="kyc-dob" type="date" />
+              </div>
+              <div class="kyc-field">
+                <label>ΑΔΤ (Αριθμός Δελτίου Ταυτότητας)</label>
+                <input id="kyc-adt" type="text" placeholder="ΑΒ 123456" maxlength="12" />
+                <span class="kyc-inline-hint" id="kyc-adt-hint"></span>
+              </div>
             </div>
+
+            <div class="kyc-row">
+              <div class="kyc-field">
+                <label>ΑΦΜ <span class="kyc-optional">(προαιρετικό)</span></label>
+                <input id="kyc-afm" type="text" placeholder="123456789" maxlength="9" inputmode="numeric" />
+                <span class="kyc-inline-hint" id="kyc-afm-hint"></span>
+              </div>
+              <div class="kyc-field">
+                <label>ΑΜΚΑ <span class="kyc-optional">(προαιρετικό)</span></label>
+                <input id="kyc-amka" type="text" placeholder="01019012345" maxlength="11" inputmode="numeric" />
+                <span class="kyc-inline-hint" id="kyc-amka-hint"></span>
+              </div>
+            </div>
+
+            <!-- Photo uploads -->
+            <div class="kyc-uploads">
+              <div class="kyc-upload-item">
+                <label>📄 Μπρος Ταυτότητας</label>
+                <input type="file" id="kyc-file-front" accept="image/*" capture="environment" />
+                <div class="kyc-thumb" id="kyc-thumb-front"></div>
+              </div>
+              <div class="kyc-upload-item">
+                <label>📄 Πίσω Ταυτότητας</label>
+                <input type="file" id="kyc-file-back" accept="image/*" capture="environment" />
+                <div class="kyc-thumb" id="kyc-thumb-back"></div>
+              </div>
+              <div class="kyc-upload-item">
+                <label>🤳 Selfie</label>
+                <input type="file" id="kyc-file-selfie" accept="image/*" capture="user" />
+                <div class="kyc-thumb" id="kyc-thumb-selfie"></div>
+              </div>
+            </div>
+
+            <div id="kyc-age-error"   class="kyc-notice kyc-notice-danger" style="display:none"></div>
+            <div id="kyc-submit-warn" class="kyc-notice kyc-notice-orange" style="display:none"></div>
+
+            <button id="kyc-submit-btn" class="kyc-btn-primary">
+              Υποβολή για έλεγχο →
+            </button>
           </div>
-          <button id="kyc-addr-btn" class="kyc-btn-primary">Submit Address</button>
+        </div>
+      </div>
+
+      <div id="kyc-view-pending" style="display:none">
+        <div class="kyc-card">
+          <div class="kyc-result-icon">⏳</div>
+          <h3 class="kyc-card-title">Υπό επεξεργασία</h3>
+          <p class="kyc-card-desc">Τα στοιχεία σας έχουν υποβληθεί και βρίσκονται σε έλεγχο. Θα ενημερωθείτε σύντομα.</p>
+        </div>
+      </div>
+
+      <div id="kyc-view-approved" style="display:none">
+        <div class="kyc-card kyc-card-approved">
+          <div class="kyc-result-icon">✅</div>
+          <h3 class="kyc-card-title">Η ταυτότητά σας επαληθεύτηκε</h3>
+          <p class="kyc-card-desc" id="kyc-approved-msg"></p>
+        </div>
+      </div>
+
+      <div id="kyc-view-rejected" style="display:none">
+        <div class="kyc-card kyc-card-declined">
+          <div class="kyc-result-icon">❌</div>
+          <h3 class="kyc-card-title">Η αίτηση απορρίφθηκε</h3>
+          <p class="kyc-card-desc" id="kyc-rejected-msg"></p>
+          <button id="kyc-reapply-btn" class="kyc-btn-secondary" style="margin-top:12px">Νέα Υποβολή</button>
         </div>
       </div>
     </div>
 
-    <!-- ── Setup instructions (always visible at bottom) ────────────── -->
-    <details class="kyc-setup" id="kyc-setup-details">
-      <summary>⚙️ Veriff Setup Instructions (for developers)</summary>
-      <div class="kyc-setup-body">
-        <p><strong>1. Create a free Veriff account</strong><br>
-          Go to <a href="https://portal.veriff.com" target="_blank">portal.veriff.com</a> → sign up → create an Integration.</p>
-        <p><strong>2. Copy your API keys</strong><br>
-          From the integration page, copy <code>API Key</code> and <code>Shared Secret Key</code>.</p>
-        <p><strong>3. Add environment variables in Render</strong><br>
-          In your Render service → Environment → add:</p>
-        <div class="kyc-code">
-VERIFF_API_KEY = your_api_key_here
-VERIFF_SECRET  = your_shared_secret_here
-APP_URL        = https://tracker-app-qeoi.onrender.com
+    <!-- ADMIN VIEW (hidden, unlocked with password) -->
+    <div id="kyc-admin-view" style="display:none">
+      <div class="kyc-admin-bar">
+        <span>🔐 Admin Review Queue</span>
+        <div style="display:flex;gap:8px">
+          <select id="kyc-admin-filter" class="kyc-admin-select">
+            <option value="">All</option>
+            <option value="PENDING" selected>Pending</option>
+            <option value="APPROVED">Approved</option>
+            <option value="REJECTED">Rejected</option>
+          </select>
+          <button id="kyc-admin-refresh" class="kyc-btn-secondary" style="padding:4px 10px;font-size:.78rem">↻ Refresh</button>
+          <button id="kyc-admin-close"   class="kyc-btn-secondary" style="padding:4px 10px;font-size:.78rem">✕ Close</button>
         </div>
-        <p><strong>4. Configure webhook in Veriff portal</strong><br>
-          Under your Integration → Notifications → set the webhook URL to:<br>
-          <code>https://tracker-app-qeoi.onrender.com/api/kyc/webhook</code></p>
-        <p><strong>5. Test with Veriff's sandbox</strong><br>
-          Veriff provides magic test documents in sandbox mode. Any scan will return "approved" or specific
-          decline scenarios so you can test the full flow without a real ID.</p>
-        <p><strong>Greek document support</strong><br>
-          Veriff fully supports: Αστυνομική Ταυτότητα (ID_CARD) and Διαβατήριο (PASSPORT).
-          Liveness check (selfie match) is included automatically in every verification session.</p>
       </div>
-    </details>
+      <div id="kyc-admin-list"></div>
+    </div>
 
+    <!-- Admin button (bottom) -->
+    <div style="margin-top:20px;text-align:right">
+      <button id="kyc-admin-btn" class="kyc-btn-secondary" style="font-size:.78rem">🔐 Admin Review Panel</button>
+    </div>
   </div><!-- /#tab-kyc -->
 
   <!-- ══════════════════════════════ TAB: HISTORY ═════════════════════════ -->
@@ -527,110 +483,114 @@ function shortId(id) {
   }
 })();
 
-// ── KYC tab ───────────────────────────────────────────────────────────────────
-let _kycDeviceId    = null;
-let _kycPollTimer   = null;
-let _kycTabLoaded   = false;
+// ── KYC — manual review system ────────────────────────────────────────────────
+let _kycDeviceId  = null;
+let _kycAdminPw   = null;
+const _kycImages  = { front: null, back: null, selfie: null };
 
-const KYC_STATUS_META = {
-  NOT_STARTED:              { badge: 'kyc-badge-grey',   label: 'Not started' },
-  SESSION_PENDING:          { badge: 'kyc-badge-grey',   label: 'Starting…' },
-  SESSION_CREATED:          { badge: 'kyc-badge-blue',   label: 'In progress' },
-  PENDING:                  { badge: 'kyc-badge-blue',   label: 'Reviewing…' },
-  APPROVED:                 { badge: 'kyc-badge-green',  label: '✅ Approved' },
-  DECLINED:                 { badge: 'kyc-badge-red',    label: '❌ Declined' },
-  RESUBMISSION_REQUESTED:   { badge: 'kyc-badge-orange', label: '📋 More docs needed' },
-  ABANDONED:                { badge: 'kyc-badge-grey',   label: 'Abandoned' },
-  EXPIRED:                  { badge: 'kyc-badge-grey',   label: 'Expired' },
-};
+// ─ client-side validation helpers ────────────────────────────────────────────
+function validateAFMClient(afm) {
+  const s = String(afm||'').replace(/\s/g,'');
+  if (!/^\d{9}$/.test(s) || s==='000000000') return false;
+  let sum = 0;
+  for (let i=0;i<8;i++) sum += parseInt(s[i]) * Math.pow(2,8-i);
+  return (sum%11)%10 === parseInt(s[8]);
+}
+function validateAMKAClient(amka, dob) {
+  const s = String(amka||'').replace(/\s/g,'');
+  if (!/^\d{11}$/.test(s)) return null;
+  if (!dob) return true;
+  const parts = dob.split('-');
+  if (parts.length!==3) return true;
+  return s.slice(0,2)===parts[2].padStart(2,'0') &&
+         s.slice(2,4)===parts[1].padStart(2,'0') &&
+         s.slice(4,6)===parts[0].slice(-2);
+}
+function validateADTClient(adt) {
+  const s = String(adt||'').replace(/\s/g,'').toUpperCase();
+  return /^[A-ZΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ]{1,2}\d{6,7}$/.test(s);
+}
 
-function kycShowSection(id) {
-  ['kyc-form-section','kyc-pending-section','kyc-approved-section',
-   'kyc-declined-section','kyc-resubmit-section','kyc-address-section']
-  .forEach(s => {
-    const el = document.getElementById(s);
-    if (el) el.style.display = s === id ? 'block' : 'none';
+function setHint(elId, ok, msg) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.textContent = msg;
+  el.className = 'kyc-inline-hint ' + (ok ? 'hint-ok' : 'hint-err');
+}
+
+// ─ image compression via canvas ──────────────────────────────────────────────
+function compressImage(file, maxPx=900, quality=0.72) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
+        const w = Math.round(img.width  * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
   });
+}
+
+function setupFileInput(inputId, thumbId, key) {
+  const input = document.getElementById(inputId);
+  const thumb = document.getElementById(thumbId);
+  if (!input) return;
+  input.addEventListener('change', async () => {
+    const file = input.files[0];
+    if (!file) return;
+    thumb.innerHTML = '<div class="kyc-thumb-loading">Φόρτωση…</div>';
+    try {
+      const b64 = await compressImage(file);
+      _kycImages[key] = b64;
+      thumb.innerHTML = `<img src="${b64}" class="kyc-thumb-img" />`;
+    } catch (e) {
+      thumb.innerHTML = '<div style="color:#fca5a5;font-size:.75rem">Σφάλμα φόρτωσης</div>';
+    }
+  });
+}
+
+// ─ status rendering ───────────────────────────────────────────────────────────
+function kycShowView(id) {
+  ['kyc-view-form','kyc-view-pending','kyc-view-approved','kyc-view-rejected']
+    .forEach(v => { const el=document.getElementById(v); if(el) el.style.display = v===id?'block':'none'; });
 }
 
 function kycSetBadge(status) {
-  const meta  = KYC_STATUS_META[status] || KYC_STATUS_META['NOT_STARTED'];
+  const map = {
+    NOT_STARTED: ['kyc-badge-grey',  'Δεν ξεκίνησε'],
+    PENDING:     ['kyc-badge-blue',  '⏳ Υπό έλεγχο'],
+    APPROVED:    ['kyc-badge-green', '✅ Εγκρίθηκε'],
+    REJECTED:    ['kyc-badge-red',   '❌ Απορρίφθηκε'],
+  };
+  const [cls, lbl] = map[status] || map.NOT_STARTED;
   const badge = document.getElementById('kyc-status-badge');
-  if (!badge) return;
-  badge.className = `kyc-badge ${meta.badge}`;
-  badge.textContent = meta.label;
-}
-
-function kycSetStep(stepIdx) {
-  // 0=id, 1=addr, 2=done
-  ['kyc-step-id','kyc-step-addr','kyc-step-done'].forEach((id, i) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.classList.remove('kyc-step-active','kyc-step-done-cls','kyc-step-pending');
-    if (i < stepIdx)       el.classList.add('kyc-step-done-cls');
-    else if (i === stepIdx) el.classList.add('kyc-step-active');
-    else                   el.classList.add('kyc-step-pending');
-  });
+  if (badge) { badge.className='kyc-badge '+cls; badge.textContent=lbl; }
 }
 
 function kycRenderStatus(data) {
-  const { status, address_status, person, decline_reason, configured } = data;
-
-  kycSetBadge(status);
-
-  if (!configured) {
-    document.getElementById('kyc-not-configured').style.display = 'block';
-  }
-
-  if (status === 'NOT_STARTED' || status === 'SESSION_PENDING') {
-    kycShowSection('kyc-form-section');
-    kycSetStep(0);
+  kycSetBadge(data.status);
+  if (data.status === 'NOT_STARTED') { kycShowView('kyc-view-form'); return; }
+  if (data.status === 'PENDING')     { kycShowView('kyc-view-pending'); return; }
+  if (data.status === 'APPROVED') {
+    kycShowView('kyc-view-approved');
+    document.getElementById('kyc-approved-msg').textContent =
+      `${data.first_name||''} ${data.last_name||''} — ταυτότητα επαληθευμένη`.trim();
     return;
   }
-
-  if (status === 'SESSION_CREATED' || status === 'PENDING') {
-    kycShowSection('kyc-pending-section');
-    kycSetStep(0);
-    startKYCPoll();
-    return;
-  }
-
-  if (status === 'APPROVED') {
-    kycShowSection('kyc-approved-section');
-    kycSetStep(address_status === 'SUBMITTED' || address_status === 'VERIFIED' ? 2 : 1);
-
-    if (person) {
-      document.getElementById('kyc-approved-name').textContent =
-        `${person.firstName || ''} ${person.lastName || ''} — identity confirmed`.trim();
-    }
-
-    // Show address step if not submitted yet
-    if (address_status === 'NOT_SUBMITTED') {
-      document.getElementById('kyc-address-section').style.display = 'block';
-    } else {
-      document.getElementById('kyc-address-section').style.display = 'block';
-      document.getElementById('kyc-addr-submitted').style.display = 'block';
-      document.getElementById('kyc-addr-form').style.display = 'none';
-    }
-    stopKYCPoll();
-    return;
-  }
-
-  if (status === 'DECLINED' || status === 'ABANDONED' || status === 'EXPIRED') {
-    kycShowSection('kyc-declined-section');
-    kycSetStep(0);
-    const reasonEl = document.getElementById('kyc-decline-reason');
-    if (reasonEl && decline_reason) reasonEl.textContent = decline_reason;
-    stopKYCPoll();
-    return;
-  }
-
-  if (status === 'RESUBMISSION_REQUESTED') {
-    kycShowSection('kyc-resubmit-section');
-    kycSetStep(0);
-    const reasonEl = document.getElementById('kyc-resubmit-reason');
-    if (reasonEl && decline_reason) reasonEl.textContent = decline_reason;
-    stopKYCPoll();
+  if (data.status === 'REJECTED') {
+    kycShowView('kyc-view-rejected');
+    const el = document.getElementById('kyc-rejected-msg');
+    if (el) el.textContent = data.operator_notes || 'Η αίτηση δεν εγκρίθηκε.';
     return;
   }
 }
@@ -638,134 +598,235 @@ function kycRenderStatus(data) {
 async function loadKYC(deviceId) {
   if (!deviceId) return;
   _kycDeviceId = deviceId;
-
   try {
     const data = await fetch(`/api/kyc/status/${deviceId}`).then(r => r.json());
     kycRenderStatus(data);
-  } catch (err) {
-    console.error('KYC load error:', err);
-  }
+  } catch(e) { console.error('KYC load', e); }
 }
 
-function startKYCPoll() {
-  stopKYCPoll();
-  _kycPollTimer = setInterval(async () => {
-    if (!_kycDeviceId) return;
-    try {
-      const data = await fetch(`/api/kyc/status/${_kycDeviceId}`).then(r => r.json());
-      if (!['SESSION_CREATED','PENDING','SESSION_PENDING'].includes(data.status)) {
-        kycRenderStatus(data);
-      }
-    } catch (_) {}
-  }, 5000);
-}
-function stopKYCPoll() {
-  if (_kycPollTimer) { clearInterval(_kycPollTimer); _kycPollTimer = null; }
-}
-
-// Wire up KYC form buttons once DOM is ready
+// ─ bind all KYC buttons ───────────────────────────────────────────────────────
 function kycBindButtons() {
-  // Age gate — set max date on DOB field (must be 21+)
+  // Max DOB = 21 years ago
   const dobInput = document.getElementById('kyc-dob');
   if (dobInput) {
-    const cutoff = new Date();
-    cutoff.setFullYear(cutoff.getFullYear() - 21);
-    dobInput.max = cutoff.toISOString().split('T')[0];
+    const c = new Date(); c.setFullYear(c.getFullYear()-21);
+    dobInput.max = c.toISOString().split('T')[0];
   }
 
-  // Start verification
-  document.getElementById('kyc-start-btn')?.addEventListener('click', async () => {
-    const first  = document.getElementById('kyc-first').value.trim();
-    const last   = document.getElementById('kyc-last').value.trim();
-    const dob    = document.getElementById('kyc-dob').value;
-    const idType = document.getElementById('kyc-idtype').value;
+  // Live ΑΦΜ validation
+  document.getElementById('kyc-afm')?.addEventListener('input', function() {
+    const v = this.value.replace(/\s/g,'');
+    if (!v) { setHint('kyc-afm-hint',true,''); return; }
+    const ok = validateAFMClient(v);
+    setHint('kyc-afm-hint', ok, ok ? '✓ Έγκυρο' : '✗ Λανθασμένο ψηφίο ελέγχου');
+  });
 
-    document.getElementById('kyc-age-error').style.display = 'none';
+  // Live ΑΜΚΑ validation
+  const amkaCheck = () => {
+    const amka = document.getElementById('kyc-amka')?.value.replace(/\s/g,'');
+    const dob  = document.getElementById('kyc-dob')?.value;
+    if (!amka) { setHint('kyc-amka-hint',true,''); return; }
+    const ok = validateAMKAClient(amka, dob);
+    setHint('kyc-amka-hint', ok!==false,
+      ok===null  ? '✗ Πρέπει να είναι 11 ψηφία' :
+      ok===false ? `✗ Ασυμφωνία με ΗΓ (ΑΜΚΑ=${amka.slice(0,6)})` : '✓ Συμφωνεί με ΗΓ');
+  };
+  document.getElementById('kyc-amka')?.addEventListener('input', amkaCheck);
+  document.getElementById('kyc-dob')?.addEventListener('change', amkaCheck);
 
-    if (!first || !last || !dob) {
-      alert('Please fill in all required fields.');
+  // Live ΑΔΤ validation
+  document.getElementById('kyc-adt')?.addEventListener('input', function() {
+    const v = this.value;
+    if (!v) { setHint('kyc-adt-hint',true,''); return; }
+    const ok = validateADTClient(v);
+    setHint('kyc-adt-hint', ok, ok ? '✓ Έγκυρη μορφή' : '✗ π.χ. ΑΒ 123456');
+  });
+
+  // File inputs
+  setupFileInput('kyc-file-front',  'kyc-thumb-front',  'front');
+  setupFileInput('kyc-file-back',   'kyc-thumb-back',   'back');
+  setupFileInput('kyc-file-selfie', 'kyc-thumb-selfie', 'selfie');
+
+  // Submit
+  document.getElementById('kyc-submit-btn')?.addEventListener('click', async () => {
+    const first = document.getElementById('kyc-first')?.value.trim();
+    const last  = document.getElementById('kyc-last')?.value.trim();
+    const dob   = document.getElementById('kyc-dob')?.value;
+    const adt   = document.getElementById('kyc-adt')?.value.trim();
+    const afm   = document.getElementById('kyc-afm')?.value.trim();
+    const amka  = document.getElementById('kyc-amka')?.value.trim();
+
+    document.getElementById('kyc-age-error').style.display   = 'none';
+    document.getElementById('kyc-submit-warn').style.display = 'none';
+
+    if (!first||!last||!dob||!adt) {
+      alert('Παρακαλώ συμπληρώστε: Όνομα, Επώνυμο, ΗΓ, ΑΔΤ');
       return;
     }
 
-    const btn = document.getElementById('kyc-start-btn');
-    btn.disabled = true;
-    btn.textContent = 'Starting…';
+    const btn = document.getElementById('kyc-submit-btn');
+    btn.disabled = true; btn.textContent = 'Υποβολή…';
 
     try {
-      const res  = await fetch('/api/kyc/start', {
+      const res  = await fetch('/api/kyc/submit', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ device_id: _kycDeviceId, first_name: first, last_name: last, dob, id_type: idType }),
+        body:    JSON.stringify({
+          device_id: _kycDeviceId,
+          first_name: first, last_name: last, dob,
+          adt, afm: afm||null, amka: amka||null,
+          id_front: _kycImages.front,
+          id_back:  _kycImages.back,
+          selfie:   _kycImages.selfie,
+        }),
       });
       const data = await res.json();
 
       if (data.code === 'UNDERAGE') {
+        document.getElementById('kyc-age-error').textContent = data.error;
         document.getElementById('kyc-age-error').style.display = 'block';
-        btn.disabled = false;
-        btn.textContent = 'Continue to ID Scan →';
-        return;
+        btn.disabled=false; btn.textContent='Υποβολή για έλεγχο →'; return;
       }
-
       if (data.error) {
         alert(data.error);
-        btn.disabled = false;
-        btn.textContent = 'Continue to ID Scan →';
-        return;
+        btn.disabled=false; btn.textContent='Υποβολή για έλεγχο →'; return;
       }
 
-      if (data.sessionUrl) {
-        // Open Veriff in new tab
-        window.open(data.sessionUrl, '_blank', 'noopener');
-        kycSetBadge('SESSION_CREATED');
-        kycShowSection('kyc-pending-section');
-        startKYCPoll();
-      } else if (data.demo) {
-        // Demo mode — no real session
-        kycShowSection('kyc-pending-section');
-        kycSetBadge('SESSION_CREATED');
+      // Show warnings (invalid AFM/AMKA etc.) but don't block
+      if (data.warnings?.length) {
+        const w = document.getElementById('kyc-submit-warn');
+        w.innerHTML = '⚠️ Σημειώσεις: ' + data.warnings.join(' | ');
+        w.style.display = 'block';
       }
-    } catch (err) {
-      alert('Error starting verification: ' + err.message);
-      btn.disabled = false;
-      btn.textContent = 'Continue to ID Scan →';
+
+      kycShowView('kyc-view-pending');
+      kycSetBadge('PENDING');
+
+    } catch(err) {
+      alert('Σφάλμα: ' + err.message);
+      btn.disabled=false; btn.textContent='Υποβολή για έλεγχο →';
     }
   });
 
-  // Retry / re-submit
-  ['kyc-retry-btn','kyc-resubmit-btn'].forEach(id => {
-    document.getElementById(id)?.addEventListener('click', () => {
-      kycShowSection('kyc-form-section');
-      kycSetBadge('NOT_STARTED');
+  // Re-apply after rejection
+  document.getElementById('kyc-reapply-btn')?.addEventListener('click', () => {
+    kycShowView('kyc-view-form'); kycSetBadge('NOT_STARTED');
+  });
+
+  // Admin panel
+  document.getElementById('kyc-admin-btn')?.addEventListener('click', () => {
+    const pw = prompt('Admin password:');
+    if (!pw) return;
+    _kycAdminPw = pw;
+    document.getElementById('kyc-user-view').style.display  = 'none';
+    document.getElementById('kyc-admin-view').style.display = 'block';
+    loadAdminQueue();
+  });
+  document.getElementById('kyc-admin-close')?.addEventListener('click', () => {
+    document.getElementById('kyc-admin-view').style.display = 'none';
+    document.getElementById('kyc-user-view').style.display  = 'block';
+  });
+  document.getElementById('kyc-admin-refresh')?.addEventListener('click', loadAdminQueue);
+  document.getElementById('kyc-admin-filter')?.addEventListener('change', loadAdminQueue);
+}
+
+// ─ admin queue ────────────────────────────────────────────────────────────────
+async function loadAdminQueue() {
+  const list   = document.getElementById('kyc-admin-list');
+  const filter = document.getElementById('kyc-admin-filter')?.value || '';
+  list.innerHTML = '<div style="padding:16px;color:var(--muted)">Loading…</div>';
+
+  try {
+    const url  = `/api/kyc/admin?pw=${encodeURIComponent(_kycAdminPw)}${filter?'&status='+filter:''}`;
+    const apps = await fetch(url).then(r => {
+      if (r.status===401) throw new Error('Wrong password');
+      return r.json();
     });
-  });
 
-  // Address submit
-  document.getElementById('kyc-addr-btn')?.addEventListener('click', async () => {
-    const line1     = document.getElementById('kyc-addr1').value.trim();
-    const city      = document.getElementById('kyc-city').value.trim();
-    const postcode  = document.getElementById('kyc-postcode').value.trim();
-
-    if (!line1 || !city || !postcode) { alert('Please fill in all address fields.'); return; }
-
-    const btn = document.getElementById('kyc-addr-btn');
-    btn.disabled = true;
-    btn.textContent = 'Submitting…';
-
-    try {
-      await fetch('/api/kyc/address', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ device_id: _kycDeviceId, address_line1: line1, address_city: city, address_postcode: postcode }),
-      });
-      document.getElementById('kyc-addr-submitted').style.display = 'block';
-      document.getElementById('kyc-addr-form').style.display = 'none';
-      kycSetStep(2);
-    } catch (err) {
-      alert('Error submitting address: ' + err.message);
-      btn.disabled = false;
-      btn.textContent = 'Submit Address';
+    if (!apps.length) {
+      list.innerHTML = '<div style="padding:16px;color:var(--muted)">No applications found.</div>';
+      return;
     }
-  });
+
+    list.innerHTML = apps.map(app => {
+      let v = {};
+      try { v = app.validations ? JSON.parse(app.validations) : {}; } catch(_){}
+
+      const flags = [
+        v.afm  && !v.afm.valid                ? `<span class="kyc-flag kyc-flag-err">ΑΦΜ invalid</span>`     : '',
+        v.amka && v.amka.dobMatch===false      ? `<span class="kyc-flag kyc-flag-err">ΑΜΚΑ/ΗΓ mismatch</span>`: '',
+        v.adt  && !v.adt.valid                 ? `<span class="kyc-flag kyc-flag-warn">ΑΔΤ format</span>`     : '',
+        (v.duplicateADT||[]).length > 0        ? `<span class="kyc-flag kyc-flag-err">Dup ΑΔΤ ×${v.duplicateADT.length}</span>` : '',
+        (v.duplicateAFM||[]).length > 0        ? `<span class="kyc-flag kyc-flag-err">Dup ΑΦΜ ×${v.duplicateAFM.length}</span>` : '',
+      ].filter(Boolean).join('');
+
+      const statusCls = {PENDING:'pill-orange', APPROVED:'pill-green', REJECTED:'pill-red'}[app.status]||'';
+
+      return `
+        <div class="kyc-admin-card" id="kyc-admin-card-${app.id}">
+          <div class="kyc-admin-card-header">
+            <div>
+              <strong>${app.first_name} ${app.last_name}</strong>
+              <span class="kyc-admin-meta">· ΗΓ ${app.dob||'—'} · ΑΔΤ ${app.adt||'—'} · ΑΦΜ ${app.afm||'—'} · ΑΜΚΑ ${app.amka||'—'}</span>
+            </div>
+            <span class="cluster-pill ${statusCls}" style="font-size:.72rem">${app.status}</span>
+          </div>
+
+          <div class="kyc-admin-flags">${flags || '<span style="color:var(--muted);font-size:.75rem">No validation issues</span>'}</div>
+
+          <div class="kyc-admin-device">
+            ${app.browser||'?'} / ${app.os||'?'} · ${app.last_city||app.last_isp||app.last_ip||'—'}
+            <span style="font-family:monospace;font-size:.7rem;color:var(--muted)"> · ${(app.device_id||'').slice(0,12)}…</span>
+          </div>
+
+          <!-- Photos -->
+          <div class="kyc-photos">
+            ${app.id_front ? `<div class="kyc-photo-wrap"><div class="kyc-photo-label">Μπρος</div><img src="${app.id_front}" class="kyc-photo-img" onclick="kycZoom(this)" /></div>` : '<div class="kyc-photo-missing">Δεν υπάρχει μπρος</div>'}
+            ${app.id_back  ? `<div class="kyc-photo-wrap"><div class="kyc-photo-label">Πίσω</div><img src="${app.id_back}" class="kyc-photo-img" onclick="kycZoom(this)" /></div>`  : '<div class="kyc-photo-missing">Δεν υπάρχει πίσω</div>'}
+            ${app.selfie   ? `<div class="kyc-photo-wrap"><div class="kyc-photo-label">Selfie</div><img src="${app.selfie}" class="kyc-photo-img" onclick="kycZoom(this)" /></div>` : '<div class="kyc-photo-missing">Δεν υπάρχει selfie</div>'}
+          </div>
+
+          ${app.status === 'PENDING' ? `
+          <div class="kyc-admin-actions">
+            <textarea id="kyc-note-${app.id}" class="kyc-note-input" placeholder="Σχόλια (προαιρετικά)…">${app.operator_notes||''}</textarea>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button class="kyc-btn-approve" onclick="kycReview(${app.id},'APPROVED')">✅ Έγκριση</button>
+              <button class="kyc-btn-reject"  onclick="kycReview(${app.id},'REJECTED')">❌ Απόρριψη</button>
+            </div>
+          </div>` : `
+          <div style="margin-top:10px;font-size:.8rem;color:var(--muted)">
+            ${app.operator_notes ? `Σχόλιο: ${app.operator_notes}` : ''}
+            ${app.reviewed_at ? ` · Αξιολογήθηκε: ${app.reviewed_at.slice(0,16)}` : ''}
+          </div>`}
+        </div>
+      `;
+    }).join('');
+
+  } catch(err) {
+    list.innerHTML = `<div style="padding:16px;color:#fca5a5">${err.message}</div>`;
+  }
+}
+
+async function kycReview(id, status) {
+  const notes = document.getElementById(`kyc-note-${id}`)?.value.trim() || '';
+  try {
+    const res = await fetch(`/api/kyc/review/${id}?pw=${encodeURIComponent(_kycAdminPw)}`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ status, operator_notes: notes, pw: _kycAdminPw }),
+    });
+    const data = await res.json();
+    if (data.ok) loadAdminQueue();
+    else alert(data.error);
+  } catch(e) { alert('Error: '+e.message); }
+}
+
+function kycZoom(img) {
+  const overlay = document.createElement('div');
+  overlay.className = 'kyc-zoom-overlay';
+  overlay.innerHTML = `<img src="${img.src}" class="kyc-zoom-img" /><div class="kyc-zoom-close">✕</div>`;
+  overlay.addEventListener('click', () => overlay.remove());
+  document.body.appendChild(overlay);
 }
 
 // ── History tab ───────────────────────────────────────────────────────────────
