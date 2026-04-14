@@ -1,0 +1,13 @@
+# Render deployment configuration
+# Docs: https://render.com/docs/infrastructure-as-code
+
+services:
+  - type: web
+    name: tracker-app
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production

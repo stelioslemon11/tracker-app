@@ -1,0 +1,19 @@
+{
+  "name": "tracker-app",
+  "version": "1.0.0",
+  "description": "Browser fingerprinting and visitor correlation demo",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "sql.js": "^1.10.3",
+    "express": "^4.18.2",
+    "ua-parser-js": "^1.0.37",
+    "node-fetch": "^2.7.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.3"
+  }
+}

@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Browser Tracker Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header>
+  <span style="font-size:1.3rem">🔍</span>
+  <h1>Browser Tracker Demo</h1>
+  <span class="badge">Educational</span>
+</header>
+
+<div class="container">
+
+  <!-- Tabs -->
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="result">Your Visit</button>
+    <button class="tab-btn"        data-tab="history">History</button>
+    <button class="tab-btn"        data-tab="devices">Devices</button>
+    <button class="tab-btn"        data-tab="networks">Networks</button>
+  </nav>
+
+  <!-- ══════════════════════════════ TAB: RESULT ══════════════════════════ -->
+  <div id="tab-result" class="tab-panel active">
+
+    <!-- Loading spinner -->
+    <div id="loading">
+      <div class="spinner"></div>
+      <span>Collecting fingerprint and analysing your visit…</span>
+    </div>
+
+    <!-- Error -->
+    <div id="error-box"></div>
+
+    <!-- Main result box (hidden until data arrives) -->
+    <div id="result-box">
+
+      <div class="result-header">
+        <div class="result-dot"></div>
+        <div class="result-title" id="result-label">—</div>
+      </div>
+
+      <p class="result-desc" id="result-desc">—</p>
+
+      <!-- Fingerprint-match notice -->
+      <div class="fp-banner" id="fp-banner">
+        ⚠️  <strong>Fingerprint match detected.</strong> Your browser fingerprint matches
+        a previously seen device even though your persistent ID is new.
+        This suggests cookies were cleared or you're using a different profile.
+      </div>
+
+      <!-- Network label -->
+      <div style="margin-bottom:16px">
+        <span style="font-size:.8rem;color:var(--muted)">Label this network (e.g. "Home WiFi", "Office"):</span>
+        <div class="label-form">
+          <input id="network-label-input" type="text" placeholder="Enter a label…" maxlength="64" />
+          <button id="network-label-btn">Save</button>
+        </div>
+      </div>
+
+      <!-- Device + Network info cards -->
+      <div class="info-grid">
+        <div class="info-card">
+          <h3>📱 Device</h3>
+          <div id="device-info"></div>
+        </div>
+        <div class="info-card">
+          <h3>🌐 Network</h3>
+          <div id="network-info"></div>
+        </div>
+        <div class="info-card">
+          <h3>🖥️ Browser Environment</h3>
+          <div id="browser-info"></div>
+        </div>
+        <div class="info-card">
+          <h3>🔑 Identifiers</h3>
+          <div id="id-info"></div>
+        </div>
+      </div>
+
+    </div><!-- /#result-box -->
+  </div><!-- /#tab-result -->
+
+  <!-- ══════════════════════════════ TAB: HISTORY ═════════════════════════ -->
+  <div id="tab-history" class="tab-panel">
+    <div id="history-stats" class="stats-bar"></div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Time</th>
+            <th>Correlation</th>
+            <th>Browser / OS</th>
+            <th>Device type</th>
+            <th>Network / ISP</th>
+            <th>City</th>
+          </tr>
+        </thead>
+        <tbody id="history-tbody">
+          <tr><td colspan="7" class="empty">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════ TAB: DEVICES ═════════════════════════ -->
+  <div id="tab-devices" class="tab-panel">
+    <div class="card-grid" id="devices-grid">
+      <div class="empty">Loading…</div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════ TAB: NETWORKS ════════════════════════ -->
+  <div id="tab-networks" class="tab-panel">
+    <div class="card-grid" id="networks-grid">
+      <div class="empty">Loading…</div>
+    </div>
+  </div>
+
+</div><!-- /.container -->
+
+<script src="collector.js"></script>
+<script>
+/* ════════════════════════════════════════════════════════════════════════════
+   App logic — runs after collector.js is loaded
+════════════════════════════════════════════════════════════════════════════ */
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn,  .tab-panel')
+            .forEach(el => el.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+
+    // Lazy-load history / devices / networks on first open
+    if (btn.dataset.tab === 'history')  loadHistory();
+    if (btn.dataset.tab === 'devices')  loadDevices();
+    if (btn.dataset.tab === 'networks') loadNetworks();
+  });
+});
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function row(key, val) {
+  if (val === null || val === undefined || val === '') return '';
+  return `<div class="info-row">
+            <span class="info-key">${key}</span>
+            <span class="info-val">${val}</span>
+          </div>`;
+}
+
+function elapsed(dateStr) {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  if (diff < 60000)    return 'just now';
+  if (diff < 3600000)  return Math.floor(diff/60000)  + 'm ago';
+  if (diff < 86400000) return Math.floor(diff/3600000) + 'h ago';
+  return Math.floor(diff/86400000) + 'd ago';
+}
+
+function badge(correlation) {
+  return `<span class="correlation-badge badge-${correlation}">
+            <span style="width:6px;height:6px;border-radius:50%;background:currentColor;display:inline-block"></span>
+            ${correlation}
+          </span>`;
+}
+
+function shortId(id) {
+  if (!id) return '—';
+  return `<span title="${id}" style="font-family:monospace;font-size:.8rem">${id.slice(0,12)}…</span>`;
+}
+
+// ── Main: collect + render ─────────────────────────────────────────────────────
+(async () => {
+  const loadingEl  = document.getElementById('loading');
+  const resultEl   = document.getElementById('result-box');
+  const errorEl    = document.getElementById('error-box');
+
+  try {
+    const data = await window.TrackerCollector.collectAndSubmit();
+
+    loadingEl.style.display = 'none';
+    resultEl.style.display  = 'block';
+    resultEl.className      = data.correlation;   // sets colour class
+
+    // Title + description
+    document.getElementById('result-label').textContent = data.label;
+    document.getElementById('result-desc').textContent  = data.description;
+
+    // Fingerprint match banner
+    if (data.fingerprintMatch && !data.knownDevice) {
+      document.getElementById('fp-banner').style.display = 'block';
+    }
+
+    // ── Device card ─────────────────────────────────────────────────────────
+    const d = data.device;
+    document.getElementById('device-info').innerHTML =
+      row('Browser',     `${d.browser} ${d.browser_version}`) +
+      row('OS',          `${d.os} ${d.os_version}`) +
+      row('Device type', d.device_type) +
+      row('Resolution',  d.screen_resolution) +
+      row('Timezone',    d.timezone) +
+      row('Language',    d.language) +
+      row('Platform',    d.platform) +
+      row('CPU cores',   d.cpu_cores) +
+      row('Memory',      d.memory_gb ? `${d.memory_gb} GB` : null) +
+      row('Touch',       d.touch_support ? 'Yes' : 'No');
+
+    // ── Network card ─────────────────────────────────────────────────────────
+    const n = data.network;
+    const netLabel = n.label ? `<strong>${n.label}</strong>` : '<em style="color:var(--muted)">unlabelled</em>';
+    document.getElementById('network-info').innerHTML =
+      row('Label',          netLabel) +
+      row('IP address',     n.ip) +
+      row('ISP',            n.isp) +
+      row('City',           n.city) +
+      row('Region',         n.region) +
+      row('Country',        n.country) +
+      row('Prior visits',   n.visit_count) +
+      row('Unique devices', n.unique_devices);
+
+    // ── Browser env card ─────────────────────────────────────────────────────
+    document.getElementById('browser-info').innerHTML =
+      row('Color depth',  `${d.color_depth}-bit`) +
+      row('Cookies',      navigator.cookieEnabled ? 'Enabled' : 'Disabled') +
+      row('DNT header',   navigator.doNotTrack === '1' ? 'Yes' : 'No') +
+      row('Online',       navigator.onLine ? 'Yes' : 'No') +
+      row('PDF viewer',   typeof PDFViewerApplication !== 'undefined' ? 'Yes' : 'Unknown') +
+      row('WebGL',        (() => { try { return !!document.createElement('canvas').getContext('webgl') ? 'Supported' : 'No'; } catch(_){return 'No';} })());
+
+    // ── Identifiers card ─────────────────────────────────────────────────────
+    document.getElementById('id-info').innerHTML =
+      row('Device ID',         shortId(d.device_id)) +
+      row('Fingerprint ID',    shortId(d.fingerprint_id)) +
+      row('Network ID',        shortId(n.network_id)) +
+      row('Returning device',  data.knownDevice  ? '✅ Yes' : '❌ No (first visit)') +
+      row('Known network',     data.knownNetwork ? '✅ Yes' : '❌ No (first visit)');
+
+    // ── Network label save ────────────────────────────────────────────────────
+    const labelInput = document.getElementById('network-label-input');
+    const labelBtn   = document.getElementById('network-label-btn');
+    if (n.label) labelInput.value = n.label;
+
+    labelBtn.addEventListener('click', async () => {
+      const label = labelInput.value.trim();
+      if (!label) return;
+      await fetch('/api/network-label', {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ network_id: n.network_id, label }),
+      });
+      labelBtn.textContent = '✓ Saved';
+      setTimeout(() => { labelBtn.textContent = 'Save'; }, 2000);
+    });
+
+  } catch (err) {
+    loadingEl.style.display = 'none';
+    errorEl.style.display   = 'block';
+    errorEl.textContent     = `Error collecting data: ${err.message}`;
+  }
+})();
+
+// ── History tab ───────────────────────────────────────────────────────────────
+let historyLoaded = false;
+async function loadHistory() {
+  if (historyLoaded) return;
+  historyLoaded = true;
+
+  const [visits, stats] = await Promise.all([
+    fetch('/api/history?limit=100').then(r => r.json()),
+    fetch('/api/stats').then(r => r.json()),
+  ]);
+
+  // Stats pills
+  const statsEl = document.getElementById('history-stats');
+  statsEl.innerHTML = [
+    { label: 'Total visits',   val: stats.total_visits,   dot: null },
+    { label: 'Devices seen',   val: stats.total_devices,  dot: null },
+    { label: 'Networks seen',  val: stats.total_networks, dot: null },
+    { label: 'GREEN',  val: stats.green_count,  dot: '#22c55e' },
+    { label: 'YELLOW', val: stats.yellow_count, dot: '#eab308' },
+    { label: 'BLUE',   val: stats.blue_count,   dot: '#3b82f6' },
+    { label: 'RED',    val: stats.red_count,    dot: '#ef4444' },
+  ].map(s => `
+    <div class="stat-pill">
+      ${s.dot ? `<span class="dot" style="background:${s.dot}"></span>` : ''}
+      <strong>${s.val}</strong> ${s.label}
+    </div>
+  `).join('');
+
+  // Table rows
+  const tbody = document.getElementById('history-tbody');
+  if (!visits.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty">No visits yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = visits.map((v, i) => `
+    <tr>
+      <td style="color:var(--muted)">${v.id}</td>
+      <td title="${v.visit_time}">${elapsed(v.visit_time)}</td>
+      <td>${badge(v.correlation)}</td>
+      <td>${v.browser || '?'} ${v.browser_version || ''} / ${v.os || '?'}</td>
+      <td>${v.device_type || '?'}</td>
+      <td>${v.network_label ? `<strong>${v.network_label}</strong>` : (v.isp || '?')}</td>
+      <td>${v.city || '?'}</td>
+    </tr>
+  `).join('');
+}
+
+// ── Devices tab ───────────────────────────────────────────────────────────────
+let devicesLoaded = false;
+async function loadDevices() {
+  if (devicesLoaded) return;
+  devicesLoaded = true;
+
+  const devices = await fetch('/api/devices').then(r => r.json());
+  const grid    = document.getElementById('devices-grid');
+
+  if (!devices.length) {
+    grid.innerHTML = '<div class="empty">No devices recorded yet.</div>';
+    return;
+  }
+
+  grid.innerHTML = devices.map(d => `
+    <div class="entity-card">
+      <h3>
+        <span class="entity-icon">${d.device_type === 'Mobile' ? '📱' : d.device_type === 'Tablet' ? '📟' : '🖥️'}</span>
+        ${d.browser || 'Unknown'} on ${d.os || 'Unknown'}
+      </h3>
+      <div class="entity-meta">
+        ${d.os_version ? `<div>${d.os} ${d.os_version}</div>` : ''}
+        ${d.screen_resolution ? `<div>Screen: ${d.screen_resolution}</div>` : ''}
+        ${d.timezone         ? `<div>TZ: ${d.timezone}</div>` : ''}
+        ${d.language         ? `<div>Lang: ${d.language}</div>` : ''}
+        ${d.cpu_cores        ? `<div>CPU: ${d.cpu_cores} cores</div>` : ''}
+        ${d.memory_gb        ? `<div>RAM: ${d.memory_gb} GB</div>` : ''}
+      </div>
+      <div class="entity-stat">
+        ${d.total_visits} visit${d.total_visits === 1 ? '' : 's'} ·
+        first ${elapsed(d.first_seen)} ·
+        last ${elapsed(d.last_seen)}
+      </div>
+      <div style="margin-top:6px;font-size:.72rem;color:var(--muted);font-family:monospace">
+        ${d.device_id.slice(0,24)}…
+      </div>
+    </div>
+  `).join('');
+}
+
+// ── Networks tab ──────────────────────────────────────────────────────────────
+let networksLoaded = false;
+async function loadNetworks() {
+  if (networksLoaded) return;
+  networksLoaded = true;
+
+  const networks = await fetch('/api/networks').then(r => r.json());
+  const grid     = document.getElementById('networks-grid');
+
+  if (!networks.length) {
+    grid.innerHTML = '<div class="empty">No networks recorded yet.</div>';
+    return;
+  }
+
+  grid.innerHTML = networks.map(n => `
+    <div class="entity-card">
+      <h3>
+        <span class="entity-icon">🌐</span>
+        ${n.label || n.isp || 'Unknown ISP'}
+      </h3>
+      <div class="entity-meta">
+        ${n.city    ? `<div>${n.city}${n.region ? ', ' + n.region : ''}${n.country ? ' · ' + n.country : ''}</div>` : ''}
+        ${n.isp     ? `<div>ISP: ${n.isp}</div>` : ''}
+        <div>Last IP: ${n.ip}</div>
+      </div>
+      <div class="entity-stat">
+        ${n.total_visits} visit${n.total_visits === 1 ? '' : 's'} ·
+        ${n.unique_devices} device${n.unique_devices === 1 ? '' : 's'} ·
+        last ${elapsed(n.last_seen)}
+      </div>
+      <div style="margin-top:6px;font-size:.72rem;color:var(--muted);font-family:monospace">
+        ${n.network_id.slice(0,12)}
+      </div>
+    </div>
+  `).join('');
+}
+</script>
+</body>
+</html>
