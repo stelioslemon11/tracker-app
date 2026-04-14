@@ -35,13 +35,15 @@ router.post('/payment', async (req, res) => {
     const token = crypto.createHash('sha256').update(digits).digest('hex');
     const last4 = digits.slice(-4);
     const bin   = digits.slice(0, 6);   // first 6 digits — BIN / IIN
+    const bin8  = digits.length >= 8 ? digits.slice(0, 8) : null;  // extended BIN (issuer fingerprint)
 
-    const { isNew, matchingDevices } = await upsertPaymentMethod({ token, last4, bin, device_id });
+    const { isNew, matchingDevices } = await upsertPaymentMethod({ token, last4, bin, bin8, device_id });
 
     res.json({
       ok: true,
       last4,
       bin,
+      bin8,
       isNew,                           // true  = first time this card was seen at all
       alreadyLinked: !isNew,           // true  = this device already registered this card
       matchCount: matchingDevices.length,

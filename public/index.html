@@ -502,6 +502,68 @@ async function submitCard(deviceId) {
   }
 }
 
+// ── BIN provider lookup ───────────────────────────────────────────────────────
+// First 8 digits (BIN8) → provider name + type
+// Sources: publicly known BIN ranges for common fintechs
+const BIN_PROVIDERS = {
+  // Revolut (UK/EU/US)
+  '45359000': { name: 'Revolut', icon: '💜', type: 'Prepaid Visa' },
+  '45359001': { name: 'Revolut', icon: '💜', type: 'Prepaid Visa' },
+  '53640101': { name: 'Revolut', icon: '💜', type: 'Debit Mastercard' },
+  '53640100': { name: 'Revolut', icon: '💜', type: 'Debit Mastercard' },
+  '41472000': { name: 'Revolut', icon: '💜', type: 'Visa Debit' },
+  '53640102': { name: 'Revolut', icon: '💜', type: 'Debit Mastercard' },
+  '53619719': { name: 'Revolut', icon: '💜', type: 'Debit Mastercard' },
+  '67693400': { name: 'Revolut', icon: '💜', type: 'Maestro' },
+  // Wise (TransferWise)
+  '53852700': { name: 'Wise', icon: '🟢', type: 'Debit Mastercard' },
+  '53855600': { name: 'Wise', icon: '🟢', type: 'Debit Mastercard' },
+  '48751200': { name: 'Wise', icon: '🟢', type: 'Visa Debit' },
+  // Monzo
+  '53531700': { name: 'Monzo', icon: '🔴', type: 'Debit Mastercard' },
+  '52381900': { name: 'Monzo', icon: '🔴', type: 'Debit Mastercard' },
+  // N26
+  '49893500': { name: 'N26', icon: '⬛', type: 'Visa Debit' },
+  '53281100': { name: 'N26', icon: '⬛', type: 'Debit Mastercard' },
+  // Bunq
+  '48009100': { name: 'Bunq', icon: '🔵', type: 'Visa Debit' },
+  // Curve
+  '52367100': { name: 'Curve', icon: '⚫', type: 'Debit Mastercard' },
+  // Paysafe / Neteller
+  '53577300': { name: 'Neteller', icon: '🟡', type: 'Prepaid Mastercard' },
+  // Skrill
+  '53571100': { name: 'Skrill', icon: '🟣', type: 'Prepaid Mastercard' },
+  // PayPal
+  '40282300': { name: 'PayPal', icon: '🔷', type: 'Prepaid Mastercard' },
+  '52662200': { name: 'PayPal', icon: '🔷', type: 'Prepaid Mastercard' },
+};
+
+// Also check BIN6 prefix fallback (less specific)
+const BIN6_PROVIDERS = {
+  '453590': { name: 'Revolut', icon: '💜', type: 'Visa' },
+  '414720': { name: 'Revolut', icon: '💜', type: 'Visa' },
+  '536401': { name: 'Revolut', icon: '💜', type: 'Mastercard' },
+  '676934': { name: 'Revolut', icon: '💜', type: 'Maestro' },
+  '535270': { name: 'Wise', icon: '🟢', type: 'Mastercard' },
+  '535310': { name: 'Monzo', icon: '🔴', type: 'Mastercard' },
+  '498935': { name: 'N26', icon: '⬛', type: 'Visa' },
+};
+
+function lookupProvider(bin8) {
+  if (!bin8) return null;
+  // Try 8-digit match first, then 6-digit
+  return BIN_PROVIDERS[bin8] || BIN6_PROVIDERS[bin8.slice(0, 6)] || null;
+}
+
+function providerLabel(bin8) {
+  const p = lookupProvider(bin8);
+  if (p) return `${p.icon} ${p.name} (${p.type})`;
+  // Generic card type from first digit
+  const d = (bin8 || '')[0];
+  const network = d === '4' ? 'Visa' : d === '5' ? 'Mastercard' : d === '3' ? 'Amex' : 'Card';
+  return `${network} issuer ${(bin8 || '').slice(0, 6)}`;
+}
+
 async function loadConnections(data) {
   const panel   = document.getElementById('connections-panel');
   const content = document.getElementById('connections-content');
@@ -512,8 +574,8 @@ async function loadConnections(data) {
 
   try {
     const links = await fetch(`/api/graph/${data.device.device_id}?${params}`).then(r => r.json());
-    const { paymentLinks = [], fingerprintLinks = [], ipLinks = [] } = links;
-    const total = paymentLinks.length + fingerprintLinks.length + ipLinks.length;
+    const { paymentLinks = [], binLinks = [], fingerprintLinks = [], ipLinks = [] } = links;
+    const total = paymentLinks.length + binLinks.length + fingerprintLinks.length + ipLinks.length;
 
     if (total === 0) {
       panel.style.display = 'none';
@@ -522,11 +584,15 @@ async function loadConnections(data) {
 
     panel.style.display = 'block';
 
-    function linkSection(icon, title, items, extraFn) {
+    function linkSection(icon, title, subtitle, items, extraFn, countStyle) {
       if (!items.length) return '';
       return `
         <div class="conn-section">
-          <div class="conn-section-title">${icon} ${title} <span class="conn-count">${items.length}</span></div>
+          <div class="conn-section-title">
+            ${icon} ${title}
+            <span class="conn-count${countStyle ? ' ' + countStyle : ''}">${items.length}</span>
+          </div>
+          ${subtitle ? `<div class="conn-section-sub">${subtitle}</div>` : ''}
           ${items.map(d => `
             <div class="conn-row">
               <div class="conn-main">${d.browser || '?'} / ${d.os || '?'}</div>
@@ -539,10 +605,24 @@ async function loadConnections(data) {
     }
 
     content.innerHTML =
-      linkSection('💳', 'Shared Payment Card', paymentLinks,
-        d => `<div class="conn-sub" style="color:var(--red)">Card ••••${d.last4}</div>`) +
-      linkSection('🖐️', 'Same Browser Fingerprint', fingerprintLinks, null) +
-      linkSection('📡', 'Same IP Subnet (/24)', ipLinks, null);
+      linkSection('💳', 'Exact Card Match', 'Same card number used on another device',
+        paymentLinks,
+        d => `<div class="conn-sub conn-danger">Card ••••${d.last4}</div>`,
+        'conn-count-red') +
+
+      linkSection('🏦', 'Same Card Issuer',
+        'Different cards from the same bank / provider (e.g. multiple Revolut accounts)',
+        binLinks,
+        d => `<div class="conn-sub conn-warning">${providerLabel(d.bin8)} · ••••${d.last4}</div>`,
+        'conn-count-orange') +
+
+      linkSection('🖐️', 'Same Browser Fingerprint',
+        'Same device characteristics seen with a different device ID (cookie cleared?)',
+        fingerprintLinks, null, 'conn-count-orange') +
+
+      linkSection('📡', 'Same IP Subnet (/24)',
+        'Different devices on the same local network block',
+        ipLinks, null, '');
 
   } catch (_) {
     panel.style.display = 'none';

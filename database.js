@@ -91,6 +91,7 @@ const SCHEMA_STATEMENTS = [
     token       TEXT    NOT NULL,
     last4       TEXT    NOT NULL,
     bin         TEXT,
+    bin8        TEXT,
     device_id   TEXT    NOT NULL,
     first_seen  TEXT    NOT NULL DEFAULT (datetime('now')),
     last_seen   TEXT    NOT NULL DEFAULT (datetime('now')),
@@ -98,6 +99,7 @@ const SCHEMA_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_pm_token     ON payment_methods(token)`,
   `CREATE INDEX IF NOT EXISTS idx_pm_device_id ON payment_methods(device_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_pm_bin8      ON payment_methods(bin8)`,
 ];
 
 // Safe migrations — add new columns to existing databases (fail silently if already present)
@@ -107,6 +109,7 @@ const MIGRATIONS = [
   `ALTER TABLE devices ADD COLUMN last_city TEXT`,
   `ALTER TABLE visits  ADD COLUMN risk_score   INTEGER DEFAULT 0`,
   `ALTER TABLE visits  ADD COLUMN risk_factors TEXT`,
+  `ALTER TABLE payment_methods ADD COLUMN bin8 TEXT`,
 ];
 
 // ─── sql.js helpers ───────────────────────────────────────────────────────────
@@ -515,7 +518,7 @@ async function getStats() {
  * Returns { isNew, matchingDevices } where matchingDevices are OTHER device_ids
  * that previously used the same card token.
  */
-async function upsertPaymentMethod({ token, last4, bin, device_id }) {
+async function upsertPaymentMethod({ token, last4, bin, bin8, device_id }) {
   let isNew = true;
 
   if (USE_TURSO) {
@@ -527,15 +530,15 @@ async function upsertPaymentMethod({ token, last4, bin, device_id }) {
     isNew = existRS.rows.length === 0;
 
     await turso.execute({
-      sql: `INSERT INTO payment_methods (token, last4, bin, device_id)
-            VALUES (?, ?, ?, ?)
+      sql: `INSERT INTO payment_methods (token, last4, bin, bin8, device_id)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(token, device_id) DO UPDATE SET last_seen = datetime('now')`,
-      args: [token, last4, bin || null, device_id],
+      args: [token, last4, bin || null, bin8 || null, device_id],
     });
 
     // Devices (excluding current) that have used the same token
     const matchRS = await turso.execute({
-      sql: `SELECT pm.device_id, pm.first_seen, pm.last_seen,
+      sql: `SELECT pm.device_id, pm.last4, pm.first_seen, pm.last_seen,
                    d.browser, d.os, d.last_ip, d.last_city, d.last_isp
             FROM payment_methods pm
             LEFT JOIN devices d ON d.device_id = pm.device_id
@@ -553,12 +556,12 @@ async function upsertPaymentMethod({ token, last4, bin, device_id }) {
       sqlRun(`UPDATE payment_methods SET last_seen = datetime('now') WHERE token = ? AND device_id = ?`,
         [token, device_id]);
     } else {
-      sqlRun(`INSERT INTO payment_methods (token, last4, bin, device_id) VALUES (?, ?, ?, ?)`,
-        [token, last4, bin || null, device_id]);
+      sqlRun(`INSERT INTO payment_methods (token, last4, bin, bin8, device_id) VALUES (?, ?, ?, ?, ?)`,
+        [token, last4, bin || null, bin8 || null, device_id]);
     }
 
     const matchingDevices = sqlAll(
-      `SELECT pm.device_id, pm.first_seen, pm.last_seen,
+      `SELECT pm.device_id, pm.last4, pm.first_seen, pm.last_seen,
               d.browser, d.os, d.last_ip, d.last_city, d.last_isp
        FROM payment_methods pm
        LEFT JOIN devices d ON d.device_id = pm.device_id
@@ -577,12 +580,12 @@ async function upsertPaymentMethod({ token, last4, bin, device_id }) {
  *   ipLinks       — same /24 IP subnet
  */
 async function getGraphLinks({ device_id, fingerprint_id, ip }) {
-  let paymentLinks = [], fingerprintLinks = [], ipLinks = [];
+  let paymentLinks = [], binLinks = [], fingerprintLinks = [], ipLinks = [];
 
   if (USE_TURSO) {
-    // Payment links
+    // Exact card matches (same token, different device)
     const pmRS = await turso.execute({
-      sql: `SELECT pm2.device_id, pm2.last4, pm.token, pm2.last_seen,
+      sql: `SELECT pm2.device_id, pm2.last4, pm2.bin8, pm2.last_seen,
                    d.browser, d.os, d.last_ip, d.last_city, d.last_isp, d.visit_count
             FROM payment_methods pm
             JOIN payment_methods pm2 ON pm2.token = pm.token AND pm2.device_id != pm.device_id
@@ -592,6 +595,37 @@ async function getGraphLinks({ device_id, fingerprint_id, ip }) {
       args: [device_id],
     });
     paymentLinks = tursoRows(pmRS);
+
+    // BIN8 issuer matches (same card provider, different card & device)
+    // Only show if this device has at least one payment registered
+    const myBinsRS = await turso.execute({
+      sql: `SELECT DISTINCT bin8 FROM payment_methods WHERE device_id = ? AND bin8 IS NOT NULL`,
+      args: [device_id],
+    });
+    const myBins = tursoRows(myBinsRS).map(r => r.bin8);
+
+    for (const bin8 of myBins) {
+      const binRS = await turso.execute({
+        sql: `SELECT DISTINCT pm.device_id, pm.last4, pm.bin8, pm.last_seen,
+                     d.browser, d.os, d.last_ip, d.last_city, d.last_isp, d.visit_count
+              FROM payment_methods pm
+              LEFT JOIN devices d ON d.device_id = pm.device_id
+              WHERE pm.bin8 = ?
+                AND pm.device_id != ?
+                AND pm.token NOT IN (
+                  SELECT token FROM payment_methods WHERE device_id = ?
+                )
+              ORDER BY pm.last_seen DESC
+              LIMIT 50`,
+        args: [bin8, device_id, device_id],
+      });
+      const rows = tursoRows(binRS);
+      // Deduplicate by device_id (a device might have multiple cards from same issuer)
+      const seen = new Set(binLinks.map(r => r.device_id));
+      for (const r of rows) {
+        if (!seen.has(r.device_id)) { binLinks.push(r); seen.add(r.device_id); }
+      }
+    }
 
     // Fingerprint links
     if (fingerprint_id) {
@@ -622,9 +656,9 @@ async function getGraphLinks({ device_id, fingerprint_id, ip }) {
     }
 
   } else {
-    // Payment links
+    // Exact card matches
     paymentLinks = sqlAll(
-      `SELECT pm2.device_id, pm2.last4, pm.token, pm2.last_seen,
+      `SELECT pm2.device_id, pm2.last4, pm2.bin8, pm2.last_seen,
               d.browser, d.os, d.last_ip, d.last_city, d.last_isp, d.visit_count
        FROM payment_methods pm
        JOIN payment_methods pm2 ON pm2.token = pm.token AND pm2.device_id != pm.device_id
@@ -633,6 +667,33 @@ async function getGraphLinks({ device_id, fingerprint_id, ip }) {
        ORDER BY pm2.last_seen DESC`,
       [device_id],
     );
+
+    // BIN8 issuer matches
+    const myBins = sqlAll(
+      `SELECT DISTINCT bin8 FROM payment_methods WHERE device_id = ? AND bin8 IS NOT NULL`,
+      [device_id],
+    ).map(r => r.bin8);
+
+    for (const bin8 of myBins) {
+      const rows = sqlAll(
+        `SELECT DISTINCT pm.device_id, pm.last4, pm.bin8, pm.last_seen,
+                d.browser, d.os, d.last_ip, d.last_city, d.last_isp, d.visit_count
+         FROM payment_methods pm
+         LEFT JOIN devices d ON d.device_id = pm.device_id
+         WHERE pm.bin8 = ?
+           AND pm.device_id != ?
+           AND pm.token NOT IN (
+             SELECT token FROM payment_methods WHERE device_id = ?
+           )
+         ORDER BY pm.last_seen DESC
+         LIMIT 50`,
+        [bin8, device_id, device_id],
+      );
+      const seen = new Set(binLinks.map(r => r.device_id));
+      for (const r of rows) {
+        if (!seen.has(r.device_id)) { binLinks.push(r); seen.add(r.device_id); }
+      }
+    }
 
     // Fingerprint links
     if (fingerprint_id) {
@@ -661,7 +722,7 @@ async function getGraphLinks({ device_id, fingerprint_id, ip }) {
     }
   }
 
-  return { paymentLinks, fingerprintLinks, ipLinks };
+  return { paymentLinks, binLinks, fingerprintLinks, ipLinks };
 }
 
 async function updateNetworkLabel(network_id, label) {

@@ -531,18 +531,32 @@ tbody td {
   font-size:   .82rem;
   font-weight: 600;
   color:       var(--text);
-  margin-bottom: 8px;
+  margin-bottom: 4px;
   display:     flex;
   align-items: center;
   gap:         6px;
 }
+.conn-section-sub {
+  font-size:     .75rem;
+  color:         var(--muted);
+  margin-bottom: 8px;
+  font-style:    italic;
+}
 .conn-count {
-  background:    rgba(239,68,68,.15);
-  color:         var(--red);
+  background:    rgba(100,116,139,.15);
+  color:         var(--muted);
   border-radius: 999px;
   padding:       1px 7px;
   font-size:     .72rem;
   font-weight:   700;
+}
+.conn-count-red {
+  background: rgba(239,68,68,.15);
+  color:      var(--red);
+}
+.conn-count-orange {
+  background: rgba(249,115,22,.15);
+  color:      var(--orange);
 }
 
 .conn-row {
@@ -553,6 +567,8 @@ tbody td {
   margin-bottom: 6px;
   font-size:     .82rem;
 }
-.conn-main { font-weight: 500; color: var(--text); margin-bottom: 2px; }
-.conn-sub  { color: var(--text-dim); font-size: .78rem; }
-.conn-id   { color: var(--muted); font-size: .72rem; font-family: monospace; margin-top: 4px; }
+.conn-main    { font-weight: 500; color: var(--text); margin-bottom: 2px; }
+.conn-sub     { color: var(--text-dim); font-size: .78rem; }
+.conn-danger  { color: #fca5a5 !important; font-weight: 600; }
+.conn-warning { color: #fdba74 !important; font-weight: 600; }
+.conn-id      { color: var(--muted); font-size: .72rem; font-family: monospace; margin-top: 4px; }
