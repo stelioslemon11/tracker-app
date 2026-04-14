@@ -24,6 +24,7 @@ const path      = require('path');
 const { initDB } = require('./database');
 const visitRouter   = require('./routes/visit');
 const historyRouter = require('./routes/history');
+const paymentRouter = require('./routes/payment');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -42,6 +43,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // ─── API Routes ───────────────────────────────────────────────────────────────
 app.use('/api', visitRouter);
 app.use('/api', historyRouter);
+app.use('/api', paymentRouter);
 
 // ─── SPA fallback ─────────────────────────────────────────────────────────────
 app.get('*', (_req, res) => {

@@ -96,7 +96,30 @@
         </div>
       </div>
 
+      <!-- Payment signal demo -->
+      <div id="payment-section" style="margin-top:24px;display:none">
+        <div class="section-heading">💳 Payment Signal</div>
+        <div class="payment-box">
+          <p class="payment-desc">
+            Enter any 16-digit card number to link it to your device fingerprint.
+            If the same card appears on another device, it will be flagged as a shared identity.
+          </p>
+          <div class="payment-input-row">
+            <input id="card-input" type="text" placeholder="1234 5678 9012 3456" maxlength="19" autocomplete="off" inputmode="numeric" />
+            <button id="card-btn">Link &amp; Check</button>
+          </div>
+          <div id="payment-result" style="display:none"></div>
+        </div>
+      </div>
+
     </div><!-- /#result-box -->
+
+    <!-- Connections / graph panel — loads after result -->
+    <div id="connections-panel" style="display:none">
+      <div class="section-heading">🔗 Connected Identities</div>
+      <div id="connections-content"></div>
+    </div>
+
   </div><!-- /#tab-result -->
 
   <!-- ══════════════════════════════ TAB: HISTORY ═════════════════════════ -->
@@ -300,6 +323,18 @@ function shortId(id) {
       setTimeout(() => { labelBtn.textContent = 'Save'; }, 2000);
     });
 
+    // ── Payment signal setup ──────────────────────────────────────────────────
+    _visitData = data;
+    const paySection = document.getElementById('payment-section');
+    paySection.style.display = 'block';
+    const cardInput = document.getElementById('card-input');
+    formatCardInput(cardInput);
+    document.getElementById('card-btn').addEventListener('click', () => submitCard(d.device_id));
+    cardInput.addEventListener('keydown', e => { if (e.key === 'Enter') submitCard(d.device_id); });
+
+    // ── Connections / graph panel ─────────────────────────────────────────────
+    loadConnections(data);
+
   } catch (err) {
     loadingEl.style.display = 'none';
     errorEl.style.display   = 'block';
@@ -392,6 +427,126 @@ async function loadDevices() {
       </div>
     </div>
   `).join('');
+}
+
+// ── Payment + Graph ───────────────────────────────────────────────────────────
+let _visitData = null;   // stored after visit completes
+
+function formatCardInput(input) {
+  input.addEventListener('input', () => {
+    let val = input.value.replace(/\D/g, '').slice(0, 16);
+    input.value = val.match(/.{1,4}/g)?.join(' ') || val;
+  });
+}
+
+async function submitCard(deviceId) {
+  const input   = document.getElementById('card-input');
+  const resultEl = document.getElementById('payment-result');
+  const digits  = input.value.replace(/\D/g, '');
+
+  if (digits.length < 13) {
+    resultEl.style.display = 'block';
+    resultEl.className = 'payment-result pr-error';
+    resultEl.innerHTML = '⚠️ Please enter a valid card number (13–16 digits).';
+    return;
+  }
+
+  const btn = document.getElementById('card-btn');
+  btn.disabled = true;
+  btn.textContent = 'Checking…';
+  resultEl.style.display = 'none';
+
+  try {
+    const res  = await fetch('/api/payment', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ device_id: deviceId, card_number: digits }),
+    });
+    const data = await res.json();
+
+    resultEl.style.display = 'block';
+
+    if (data.matchCount > 0) {
+      resultEl.className = 'payment-result pr-danger';
+      resultEl.innerHTML = `
+        <div class="pr-header">
+          🚨 Card ending <strong>••••${data.last4}</strong> was already used by
+          <strong>${data.matchCount}</strong> other device${data.matchCount !== 1 ? 's' : ''}
+        </div>
+        <div class="pr-devices">
+          ${data.matchingDevices.map(d => `
+            <div class="pr-device">
+              <span>${d.browser || '?'} / ${d.os || '?'}</span>
+              <span style="color:var(--muted)">${d.last_city || d.last_isp || d.last_ip || 'unknown location'}</span>
+              <span style="color:var(--muted);font-size:.75rem;font-family:monospace">${(d.device_id||'').slice(0,12)}…</span>
+            </div>
+          `).join('')}
+        </div>`;
+    } else if (data.alreadyLinked) {
+      resultEl.className = 'payment-result pr-info';
+      resultEl.innerHTML = `ℹ️ Card ending <strong>••••${data.last4}</strong> is already linked to this device.`;
+    } else {
+      resultEl.className = 'payment-result pr-ok';
+      resultEl.innerHTML = `✅ Card ending <strong>••••${data.last4}</strong> is new — no other device has used it.`;
+    }
+
+    // Refresh connections panel
+    if (_visitData) loadConnections(_visitData);
+
+  } catch (err) {
+    resultEl.className = 'payment-result pr-error';
+    resultEl.innerHTML = `Error: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Link & Check';
+  }
+}
+
+async function loadConnections(data) {
+  const panel   = document.getElementById('connections-panel');
+  const content = document.getElementById('connections-content');
+
+  const params = new URLSearchParams();
+  if (data.device?.fingerprint_id) params.set('fingerprint_id', data.device.fingerprint_id);
+  if (data.network?.ip)            params.set('ip', data.network.ip);
+
+  try {
+    const links = await fetch(`/api/graph/${data.device.device_id}?${params}`).then(r => r.json());
+    const { paymentLinks = [], fingerprintLinks = [], ipLinks = [] } = links;
+    const total = paymentLinks.length + fingerprintLinks.length + ipLinks.length;
+
+    if (total === 0) {
+      panel.style.display = 'none';
+      return;
+    }
+
+    panel.style.display = 'block';
+
+    function linkSection(icon, title, items, extraFn) {
+      if (!items.length) return '';
+      return `
+        <div class="conn-section">
+          <div class="conn-section-title">${icon} ${title} <span class="conn-count">${items.length}</span></div>
+          ${items.map(d => `
+            <div class="conn-row">
+              <div class="conn-main">${d.browser || '?'} / ${d.os || '?'}</div>
+              <div class="conn-sub">${d.last_city || d.last_isp || '—'} · ${d.last_ip || '—'}</div>
+              ${extraFn ? extraFn(d) : ''}
+              <div class="conn-id">${(d.device_id||'').slice(0,12)}…</div>
+            </div>
+          `).join('')}
+        </div>`;
+    }
+
+    content.innerHTML =
+      linkSection('💳', 'Shared Payment Card', paymentLinks,
+        d => `<div class="conn-sub" style="color:var(--red)">Card ••••${d.last4}</div>`) +
+      linkSection('🖐️', 'Same Browser Fingerprint', fingerprintLinks, null) +
+      linkSection('📡', 'Same IP Subnet (/24)', ipLinks, null);
+
+  } catch (_) {
+    panel.style.display = 'none';
+  }
 }
 
 // ── Networks tab ──────────────────────────────────────────────────────────────

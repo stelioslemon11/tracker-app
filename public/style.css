@@ -425,3 +425,134 @@ tbody td {
   color:       var(--text-dim);
   line-height: 1.5;
 }
+
+/* ── Section heading (payment + connections) ─────────────────────────────────── */
+.section-heading {
+  font-size:      .78rem;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-weight:    600;
+  color:          var(--muted);
+  margin-bottom:  12px;
+}
+
+/* ── Payment signal box ──────────────────────────────────────────────────────── */
+.payment-box {
+  background:    var(--surface2);
+  border:        1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding:       18px;
+}
+
+.payment-desc {
+  font-size:    .82rem;
+  color:        var(--text-dim);
+  line-height:  1.6;
+  margin-bottom: 14px;
+}
+
+.payment-input-row {
+  display: flex;
+  gap:     8px;
+}
+
+.payment-input-row input {
+  flex:          1;
+  background:    var(--surface);
+  border:        1px solid var(--border);
+  color:         var(--text);
+  padding:       8px 12px;
+  border-radius: var(--radius-sm);
+  font-size:     1rem;
+  font-family:   monospace;
+  letter-spacing: .08em;
+}
+.payment-input-row input:focus { outline: none; border-color: var(--blue); }
+
+.payment-input-row button {
+  background:    rgba(59,130,246,.15);
+  border:        1px solid rgba(59,130,246,.3);
+  color:         var(--blue);
+  padding:       8px 18px;
+  border-radius: var(--radius-sm);
+  cursor:        pointer;
+  font-size:     .88rem;
+  white-space:   nowrap;
+}
+.payment-input-row button:hover    { background: rgba(59,130,246,.25); }
+.payment-input-row button:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Payment result states */
+.payment-result {
+  margin-top:    12px;
+  border-radius: var(--radius-sm);
+  padding:       12px 14px;
+  font-size:     .85rem;
+  line-height:   1.5;
+}
+.pr-ok     { background: rgba(34,197,94,.1);   border: 1px solid rgba(34,197,94,.3);   color: #86efac; }
+.pr-danger { background: rgba(239,68,68,.1);   border: 1px solid rgba(239,68,68,.3);   color: #fca5a5; }
+.pr-info   { background: rgba(59,130,246,.1);  border: 1px solid rgba(59,130,246,.3);  color: #93c5fd; }
+.pr-error  { background: rgba(249,115,22,.1);  border: 1px solid rgba(249,115,22,.3);  color: #fdba74; }
+
+.pr-header { margin-bottom: 10px; }
+
+.pr-devices {
+  display:        flex;
+  flex-direction: column;
+  gap:            6px;
+}
+.pr-device {
+  background:    rgba(255,255,255,.04);
+  border-radius: 4px;
+  padding:       8px 10px;
+  display:       flex;
+  gap:           10px;
+  flex-wrap:     wrap;
+  align-items:   center;
+  font-size:     .8rem;
+}
+
+/* ── Connections / graph panel ───────────────────────────────────────────────── */
+#connections-panel {
+  background:    var(--surface);
+  border:        1px solid var(--border);
+  border-radius: var(--radius);
+  padding:       20px 24px;
+  margin-bottom: 28px;
+}
+
+.conn-section {
+  margin-bottom: 20px;
+}
+.conn-section:last-child { margin-bottom: 0; }
+
+.conn-section-title {
+  font-size:   .82rem;
+  font-weight: 600;
+  color:       var(--text);
+  margin-bottom: 8px;
+  display:     flex;
+  align-items: center;
+  gap:         6px;
+}
+.conn-count {
+  background:    rgba(239,68,68,.15);
+  color:         var(--red);
+  border-radius: 999px;
+  padding:       1px 7px;
+  font-size:     .72rem;
+  font-weight:   700;
+}
+
+.conn-row {
+  background:    var(--surface2);
+  border:        1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding:       10px 12px;
+  margin-bottom: 6px;
+  font-size:     .82rem;
+}
+.conn-main { font-weight: 500; color: var(--text); margin-bottom: 2px; }
+.conn-sub  { color: var(--text-dim); font-size: .78rem; }
+.conn-id   { color: var(--muted); font-size: .72rem; font-family: monospace; margin-top: 4px; }
