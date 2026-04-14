@@ -11,7 +11,8 @@ const express  = require('express');
 const crypto   = require('crypto');
 const router   = express.Router();
 
-const { upsertPaymentMethod, getGraphLinks } = require('../database');
+const fetch = require('node-fetch');
+const { upsertPaymentMethod, getGraphLinks, getBINCache, setBINCache, getDeviceCluster } = require('../database');
 
 // ─── POST /api/payment ────────────────────────────────────────────────────────
 // Body: { device_id, card_number }
@@ -71,6 +72,67 @@ router.get('/graph/:device_id', async (req, res) => {
     res.json(links);
   } catch (err) {
     console.error('[graph] error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ─── GET /api/bin/:bin ────────────────────────────────────────────────────────
+// Look up card issuer via binlist.net (free API), cache results in DB
+// :bin can be 6–8 digits
+router.get('/bin/:bin', async (req, res) => {
+  try {
+    const raw  = req.params.bin.replace(/\D/g, '');
+    const bin6 = raw.slice(0, 6);
+    if (bin6.length < 6) return res.status(400).json({ error: 'Need at least 6 digits' });
+
+    // 1. Check cache
+    const cached = await getBINCache(bin6);
+    if (cached) return res.json({ ...cached, _source: 'cache' });
+
+    // 2. Call binlist.net
+    let data = null;
+    try {
+      const apiRes = await fetch(`https://lookup.binlist.net/${bin6}`, {
+        headers: { 'Accept-Version': '3' },
+        timeout: 4000,
+      });
+      if (apiRes.ok) {
+        const raw = await apiRes.json();
+        data = {
+          scheme:   raw.scheme   || null,   // visa / mastercard / amex
+          type:     raw.type     || null,   // debit / credit / prepaid
+          brand:    raw.brand    || null,
+          prepaid:  raw.prepaid  || false,
+          bank:     raw.bank?.name    || null,
+          bankUrl:  raw.bank?.url     || null,
+          bankPhone: raw.bank?.phone  || null,
+          country:  raw.country?.name || null,
+          countryEmoji: raw.country?.emoji || null,
+        };
+        await setBINCache(bin6, data);
+      }
+    } catch (fetchErr) {
+      console.warn('[bin] binlist.net lookup failed:', fetchErr.message);
+    }
+
+    if (!data) return res.status(404).json({ error: 'BIN not found' });
+    res.json({ ...data, _source: 'api' });
+
+  } catch (err) {
+    console.error('[bin] error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ─── GET /api/cluster/:device_id ─────────────────────────────────────────────
+// Returns the full connected component (BFS over all link types)
+router.get('/cluster/:device_id', async (req, res) => {
+  try {
+    const { device_id } = req.params;
+    const result = await getDeviceCluster(device_id);
+    res.json(result);
+  } catch (err) {
+    console.error('[cluster] error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

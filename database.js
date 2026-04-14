@@ -100,6 +100,11 @@ const SCHEMA_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_pm_token     ON payment_methods(token)`,
   `CREATE INDEX IF NOT EXISTS idx_pm_device_id ON payment_methods(device_id)`,
   `CREATE INDEX IF NOT EXISTS idx_pm_bin8      ON payment_methods(bin8)`,
+  `CREATE TABLE IF NOT EXISTS bin_cache (
+    bin6       TEXT PRIMARY KEY,
+    data       TEXT NOT NULL,
+    fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
 ];
 
 // Safe migrations — add new columns to existing databases (fail silently if already present)
@@ -725,6 +730,124 @@ async function getGraphLinks({ device_id, fingerprint_id, ip }) {
   return { paymentLinks, binLinks, fingerprintLinks, ipLinks };
 }
 
+// ─── BIN cache ────────────────────────────────────────────────────────────────
+
+async function getBINCache(bin6) {
+  const sql = `SELECT data FROM bin_cache WHERE bin6 = ?`;
+  if (USE_TURSO) {
+    const rs = await turso.execute({ sql, args: [bin6] });
+    const row = tursoFirst(rs);
+    return row ? JSON.parse(row.data) : null;
+  } else {
+    const row = sqlGet(sql, [bin6]);
+    return row ? JSON.parse(row.data) : null;
+  }
+}
+
+async function setBINCache(bin6, data) {
+  if (USE_TURSO) {
+    await turso.execute({
+      sql:  `INSERT INTO bin_cache (bin6, data) VALUES (?, ?) ON CONFLICT(bin6) DO UPDATE SET data=excluded.data, fetched_at=datetime('now')`,
+      args: [bin6, JSON.stringify(data)],
+    });
+  } else {
+    const existing = sqlGet('SELECT bin6 FROM bin_cache WHERE bin6 = ?', [bin6]);
+    if (existing) {
+      sqlRun(`UPDATE bin_cache SET data=?, fetched_at=datetime('now') WHERE bin6=?`, [JSON.stringify(data), bin6]);
+    } else {
+      sqlRun(`INSERT INTO bin_cache (bin6, data) VALUES (?, ?)`, [bin6, JSON.stringify(data)]);
+    }
+  }
+}
+
+// ─── Device detail helper (used by cluster BFS) ───────────────────────────────
+
+async function getDeviceDetails(device_id) {
+  const sql = `SELECT device_id, fingerprint_id, last_ip, last_isp, last_city, browser, os, visit_count, last_seen
+               FROM devices WHERE device_id = ?`;
+  if (USE_TURSO) {
+    const rs = await turso.execute({ sql, args: [device_id] });
+    return tursoFirst(rs) || null;
+  } else {
+    return sqlGet(sql, [device_id]) || null;
+  }
+}
+
+// ─── Cluster BFS ──────────────────────────────────────────────────────────────
+/**
+ * Walk the entire connected component starting from start_device_id.
+ * Traverses through payment token matches, BIN8 matches, fingerprint matches
+ * and IP-subnet matches up to maxDevices total.
+ *
+ * Returns { clusterSize, devices: [...], edges: [{from,to,type,detail}] }
+ */
+async function getDeviceCluster(start_device_id, { maxDevices = 60 } = {}) {
+  const visited = new Set([start_device_id]);
+  const queue   = [start_device_id];
+  const edges   = [];                    // deduplicated edge list
+  const edgeSet = new Set();             // "A|B|type" for dedup
+  const deviceMap = {};                  // device_id → details
+
+  function addEdge(from, to, type, detail) {
+    const key = [from, to, type].join('|');
+    const rev = [to, from, type].join('|');
+    if (edgeSet.has(key) || edgeSet.has(rev)) return;
+    edgeSet.add(key);
+    edges.push({ from, to, type, detail: detail || '' });
+  }
+
+  while (queue.length > 0 && visited.size < maxDevices) {
+    const current = queue.shift();
+
+    // Fetch device info so we can run all link types
+    const info = await getDeviceDetails(current);
+    if (info) deviceMap[current] = info;
+
+    const { paymentLinks, binLinks, fingerprintLinks, ipLinks } = await getGraphLinks({
+      device_id:      current,
+      fingerprint_id: info?.fingerprint_id || null,
+      ip:             info?.last_ip        || null,
+    });
+
+    const allLinks = [
+      ...paymentLinks.map(d => ({ ...d, _type: 'payment',     _detail: `Card ••••${d.last4}` })),
+      ...binLinks.map(d =>     ({ ...d, _type: 'bin',         _detail: `BIN ${d.bin8 || ''}` })),
+      ...fingerprintLinks.map(d => ({ ...d, _type: 'fingerprint', _detail: 'Same fingerprint' })),
+      ...ipLinks.map(d =>      ({ ...d, _type: 'ip',          _detail: `IP ${d.last_ip}` })),
+    ];
+
+    for (const linked of allLinks) {
+      if (!linked.device_id) continue;
+      addEdge(current, linked.device_id, linked._type, linked._detail);
+
+      if (!visited.has(linked.device_id) && visited.size < maxDevices) {
+        visited.add(linked.device_id);
+        queue.push(linked.device_id);
+        // Store raw device data we already have from the link query
+        if (!deviceMap[linked.device_id]) {
+          deviceMap[linked.device_id] = {
+            device_id:  linked.device_id,
+            browser:    linked.browser,
+            os:         linked.os,
+            last_ip:    linked.last_ip,
+            last_city:  linked.last_city,
+            last_isp:   linked.last_isp,
+            visit_count: linked.visit_count,
+            last_seen:  linked.last_seen,
+          };
+        }
+      }
+    }
+  }
+
+  return {
+    clusterSize: visited.size,
+    devices: Object.values(deviceMap),
+    edges,
+    truncated: visited.size >= maxDevices,
+  };
+}
+
 async function updateNetworkLabel(network_id, label) {
   if (USE_TURSO) {
     await turso.execute({
@@ -753,4 +876,7 @@ module.exports = {
   updateNetworkLabel,
   upsertPaymentMethod,
   getGraphLinks,
+  getBINCache,
+  setBINCache,
+  getDeviceCluster,
 };

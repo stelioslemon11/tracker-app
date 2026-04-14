@@ -466,11 +466,16 @@ async function submitCard(deviceId) {
 
     resultEl.style.display = 'block';
 
+    // Live BIN lookup — show issuer while displaying result
+    let issuerLabel = providerLabel(data.bin8);
+    const binData   = await lookupBINLive(data.bin8);
+    if (binData) issuerLabel = providerLabelFromAPI(binData, data.bin8);
+
     if (data.matchCount > 0) {
       resultEl.className = 'payment-result pr-danger';
       resultEl.innerHTML = `
         <div class="pr-header">
-          🚨 Card ending <strong>••••${data.last4}</strong> was already used by
+          🚨 Card ending <strong>••••${data.last4}</strong> (${issuerLabel}) was already used by
           <strong>${data.matchCount}</strong> other device${data.matchCount !== 1 ? 's' : ''}
         </div>
         <div class="pr-devices">
@@ -484,10 +489,10 @@ async function submitCard(deviceId) {
         </div>`;
     } else if (data.alreadyLinked) {
       resultEl.className = 'payment-result pr-info';
-      resultEl.innerHTML = `ℹ️ Card ending <strong>••••${data.last4}</strong> is already linked to this device.`;
+      resultEl.innerHTML = `ℹ️ Card ending <strong>••••${data.last4}</strong> (${issuerLabel}) is already linked to this device.`;
     } else {
       resultEl.className = 'payment-result pr-ok';
-      resultEl.innerHTML = `✅ Card ending <strong>••••${data.last4}</strong> is new — no other device has used it.`;
+      resultEl.innerHTML = `✅ Card ending <strong>••••${data.last4}</strong> (${issuerLabel}) — no other device has used this card.`;
     }
 
     // Refresh connections panel
@@ -564,69 +569,157 @@ function providerLabel(bin8) {
   return `${network} issuer ${(bin8 || '').slice(0, 6)}`;
 }
 
+// ── Live BIN lookup (calls server → binlist.net, cached) ──────────────────────
+const binLookupCache = {};  // client-side in-memory, avoids duplicate fetches
+
+async function lookupBINLive(bin8) {
+  if (!bin8 || bin8.length < 6) return null;
+  const bin6 = bin8.slice(0, 6);
+  if (binLookupCache[bin6] !== undefined) return binLookupCache[bin6];
+
+  try {
+    const res = await fetch(`/api/bin/${bin6}`);
+    if (!res.ok) { binLookupCache[bin6] = null; return null; }
+    const data = await res.json();
+    binLookupCache[bin6] = data;
+    return data;
+  } catch (_) {
+    binLookupCache[bin6] = null;
+    return null;
+  }
+}
+
+function providerLabelFromAPI(apiData, bin8) {
+  if (apiData?.bank) {
+    const country = apiData.countryEmoji || '';
+    const type    = [apiData.type, apiData.prepaid ? 'Prepaid' : ''].filter(Boolean).join(' ');
+    const scheme  = (apiData.scheme || '').charAt(0).toUpperCase() + (apiData.scheme||'').slice(1);
+    return `${country} ${apiData.bank} (${scheme} ${type})`.trim();
+  }
+  // Fall back to static lookup
+  return providerLabel(bin8);
+}
+
 async function loadConnections(data) {
   const panel   = document.getElementById('connections-panel');
   const content = document.getElementById('connections-content');
 
-  const params = new URLSearchParams();
-  if (data.device?.fingerprint_id) params.set('fingerprint_id', data.device.fingerprint_id);
-  if (data.network?.ip)            params.set('ip', data.network.ip);
-
   try {
-    const links = await fetch(`/api/graph/${data.device.device_id}?${params}`).then(r => r.json());
-    const { paymentLinks = [], binLinks = [], fingerprintLinks = [], ipLinks = [] } = links;
-    const total = paymentLinks.length + binLinks.length + fingerprintLinks.length + ipLinks.length;
+    // Use the cluster endpoint — full BFS connected component
+    const cluster = await fetch(`/api/cluster/${data.device.device_id}`).then(r => r.json());
+    const { clusterSize = 1, devices = [], edges = [], truncated = false } = cluster;
 
-    if (total === 0) {
+    if (clusterSize <= 1) {
       panel.style.display = 'none';
       return;
     }
 
     panel.style.display = 'block';
 
-    function linkSection(icon, title, subtitle, items, extraFn, countStyle) {
-      if (!items.length) return '';
-      return `
-        <div class="conn-section">
-          <div class="conn-section-title">
-            ${icon} ${title}
-            <span class="conn-count${countStyle ? ' ' + countStyle : ''}">${items.length}</span>
-          </div>
-          ${subtitle ? `<div class="conn-section-sub">${subtitle}</div>` : ''}
-          ${items.map(d => `
-            <div class="conn-row">
-              <div class="conn-main">${d.browser || '?'} / ${d.os || '?'}</div>
-              <div class="conn-sub">${d.last_city || d.last_isp || '—'} · ${d.last_ip || '—'}</div>
-              ${extraFn ? extraFn(d) : ''}
-              <div class="conn-id">${(d.device_id||'').slice(0,12)}…</div>
+    // Collect all unique bin8 values in the cluster for live lookup
+    const allBin8s = [...new Set(
+      edges.filter(e => e.type === 'bin' || e.type === 'payment')
+           .map(e => e.detail?.match(/\d{8}/)?.[0] || e.detail?.match(/\d{6}/)?.[0])
+           .filter(Boolean)
+    )];
+
+    // Pre-fetch BIN data in parallel (server caches, so fast after first time)
+    const binDataMap = {};
+    await Promise.all(allBin8s.map(async b => {
+      const d = await lookupBINLive(b);
+      if (d) binDataMap[b] = d;
+    }));
+
+    // Count edge types
+    const paymentEdges     = edges.filter(e => e.type === 'payment');
+    const binEdges         = edges.filter(e => e.type === 'bin');
+    const fpEdges          = edges.filter(e => e.type === 'fingerprint');
+    const ipEdges          = edges.filter(e => e.type === 'ip');
+
+    // Severity: if cluster has payment/fingerprint links it's serious
+    const isHighRisk = paymentEdges.length > 0 || fpEdges.length > 0;
+    const clusterColor = isHighRisk ? '#ef4444' : '#f97316';
+
+    content.innerHTML = `
+      <!-- Cluster summary banner -->
+      <div class="cluster-banner" style="border-color:${clusterColor}20;background:${clusterColor}10">
+        <div class="cluster-banner-main" style="color:${clusterColor}">
+          ${isHighRisk ? '🚨' : '⚠️'}
+          <strong>Cluster of ${clusterSize} linked device${clusterSize !== 1 ? 's' : ''} detected</strong>
+          ${truncated ? '<span style="font-size:.75rem;opacity:.7">(showing first 60)</span>' : ''}
+        </div>
+        <div class="cluster-banner-sub">
+          ${paymentEdges.length ? `<span class="cluster-pill pill-red">💳 ${paymentEdges.length} card link${paymentEdges.length>1?'s':''}</span>` : ''}
+          ${binEdges.length     ? `<span class="cluster-pill pill-orange">🏦 ${binEdges.length} issuer link${binEdges.length>1?'s':''}</span>` : ''}
+          ${fpEdges.length      ? `<span class="cluster-pill pill-orange">🖐 ${fpEdges.length} fingerprint link${fpEdges.length>1?'s':''}</span>` : ''}
+          ${ipEdges.length      ? `<span class="cluster-pill pill-grey">📡 ${ipEdges.length} IP link${ipEdges.length>1?'s':''}</span>` : ''}
+        </div>
+      </div>
+
+      <!-- Edge list -->
+      <div class="cluster-edges">
+        ${await renderEdges(paymentEdges, '💳', 'Exact Card Matches', 'pill-red', binDataMap)}
+        ${await renderEdges(binEdges, '🏦', 'Same Card Issuer', 'pill-orange', binDataMap)}
+        ${await renderEdges(fpEdges, '🖐️', 'Same Browser Fingerprint', 'pill-orange', binDataMap)}
+        ${await renderEdges(ipEdges, '📡', 'Same IP Subnet', 'pill-grey', binDataMap)}
+      </div>
+
+      <!-- Device roster -->
+      <div class="cluster-devices">
+        <div class="cluster-devices-title">All ${clusterSize} devices in this cluster:</div>
+        ${devices.filter(d => d.device_id !== data.device.device_id).map(d => `
+          <div class="cluster-device-row">
+            <span class="cluster-device-icon">${d.os?.toLowerCase().includes('android') || d.os?.toLowerCase().includes('ios') ? '📱' : '🖥️'}</span>
+            <div class="cluster-device-info">
+              <div class="cluster-device-main">${d.browser || '?'} / ${d.os || '?'}</div>
+              <div class="cluster-device-sub">${[d.last_city, d.last_isp, d.last_ip].filter(Boolean).join(' · ') || '—'}</div>
             </div>
-          `).join('')}
-        </div>`;
-    }
+            <div class="cluster-device-id">${(d.device_id||'').slice(0,12)}…</div>
+          </div>
+        `).join('')}
+      </div>
+    `;
 
-    content.innerHTML =
-      linkSection('💳', 'Exact Card Match', 'Same card number used on another device',
-        paymentLinks,
-        d => `<div class="conn-sub conn-danger">Card ••••${d.last4}</div>`,
-        'conn-count-red') +
-
-      linkSection('🏦', 'Same Card Issuer',
-        'Different cards from the same bank / provider (e.g. multiple Revolut accounts)',
-        binLinks,
-        d => `<div class="conn-sub conn-warning">${providerLabel(d.bin8)} · ••••${d.last4}</div>`,
-        'conn-count-orange') +
-
-      linkSection('🖐️', 'Same Browser Fingerprint',
-        'Same device characteristics seen with a different device ID (cookie cleared?)',
-        fingerprintLinks, null, 'conn-count-orange') +
-
-      linkSection('📡', 'Same IP Subnet (/24)',
-        'Different devices on the same local network block',
-        ipLinks, null, '');
-
-  } catch (_) {
+  } catch (err) {
+    console.error('cluster error', err);
     panel.style.display = 'none';
   }
+}
+
+async function renderEdges(edgeList, icon, title, pillClass, binDataMap) {
+  if (!edgeList.length) return '';
+
+  const rows = edgeList.map(e => {
+    // Enrich BIN detail with live provider name if available
+    let detail = e.detail;
+    const bin8Match = detail?.match(/BIN (\d+)/);
+    if (bin8Match) {
+      const b = bin8Match[1];
+      const apiData = binDataMap[b] || binDataMap[b?.slice(0,6)];
+      if (apiData) detail = providerLabelFromAPI(apiData, b);
+    }
+
+    return `
+      <div class="edge-row">
+        <div class="edge-devices">
+          <span class="edge-device">${e.from.slice(0,10)}…</span>
+          <span class="edge-arrow">→</span>
+          <span class="edge-device">${e.to.slice(0,10)}…</span>
+        </div>
+        ${detail ? `<div class="edge-detail">${detail}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div class="conn-section">
+      <div class="conn-section-title">
+        ${icon} ${title}
+        <span class="conn-count ${pillClass}">${edgeList.length}</span>
+      </div>
+      <div class="edge-list">${rows}</div>
+    </div>
+  `;
 }
 
 // ── Networks tab ──────────────────────────────────────────────────────────────
