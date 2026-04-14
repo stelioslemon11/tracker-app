@@ -330,11 +330,15 @@ function row(key, val) {
 }
 
 function elapsed(dateStr) {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  if (diff < 60000)    return 'just now';
-  if (diff < 3600000)  return Math.floor(diff/60000)  + 'm ago';
-  if (diff < 86400000) return Math.floor(diff/3600000) + 'h ago';
-  return Math.floor(diff/86400000) + 'd ago';
+  const d = new Date(dateStr);
+  const pad = n => String(n).padStart(2, '0');
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const today = new Date();
+  const isToday = d.getFullYear() === today.getFullYear() &&
+                  d.getMonth()    === today.getMonth()    &&
+                  d.getDate()     === today.getDate();
+  if (isToday) return time;
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${time}`;
 }
 
 function badge(correlation) {
