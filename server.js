@@ -25,6 +25,7 @@ const { initDB } = require('./database');
 const visitRouter   = require('./routes/visit');
 const historyRouter = require('./routes/history');
 const paymentRouter = require('./routes/payment');
+const kycRouter     = require('./routes/kyc');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -44,6 +45,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/api', visitRouter);
 app.use('/api', historyRouter);
 app.use('/api', paymentRouter);
+// KYC webhook needs raw body for HMAC — must be registered BEFORE the JSON middleware catches it.
+// express.raw() is applied per-route inside kyc.js, so we just register the router here.
+app.use('/api', kycRouter);
 
 // ─── SPA fallback ─────────────────────────────────────────────────────────────
 app.get('*', (_req, res) => {

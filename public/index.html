@@ -22,6 +22,7 @@
   <!-- Tabs -->
   <nav class="tabs">
     <button class="tab-btn active" data-tab="result">Your Visit</button>
+    <button class="tab-btn"        data-tab="kyc">🛡️ KYC</button>
     <button class="tab-btn"        data-tab="history">History</button>
     <button class="tab-btn"        data-tab="devices">Devices</button>
     <button class="tab-btn"        data-tab="networks">Networks</button>
@@ -122,6 +123,185 @@
 
   </div><!-- /#tab-result -->
 
+  <!-- ══════════════════════════════ TAB: KYC ════════════════════════════ -->
+  <div id="tab-kyc" class="tab-panel">
+
+    <!-- Greek flag header -->
+    <div class="kyc-header">
+      <div class="kyc-header-flag">🇬🇷</div>
+      <div>
+        <div class="kyc-header-title">Identity Verification</div>
+        <div class="kyc-header-sub">Greek market · ΕΕΕΠ compliant · Minimum age 21</div>
+      </div>
+      <div id="kyc-status-badge" class="kyc-badge kyc-badge-grey">Not started</div>
+    </div>
+
+    <!-- Step tracker -->
+    <div class="kyc-steps" id="kyc-steps">
+      <div class="kyc-step" id="kyc-step-id">
+        <div class="kyc-step-num">1</div>
+        <div class="kyc-step-label">ID Verification</div>
+      </div>
+      <div class="kyc-step-line"></div>
+      <div class="kyc-step" id="kyc-step-addr">
+        <div class="kyc-step-num">2</div>
+        <div class="kyc-step-label">Address Proof</div>
+      </div>
+      <div class="kyc-step-line"></div>
+      <div class="kyc-step" id="kyc-step-done">
+        <div class="kyc-step-num">✓</div>
+        <div class="kyc-step-label">Complete</div>
+      </div>
+    </div>
+
+    <!-- Not configured notice -->
+    <div id="kyc-not-configured" class="kyc-notice kyc-notice-info" style="display:none">
+      ⚙️ <strong>Demo mode</strong> — KYC is fully built but Veriff credentials are not yet configured.
+      See setup instructions below to activate real ID scanning.
+    </div>
+
+    <!-- ── STEP 1: Identity form ─────────────────────────────────────── -->
+    <div id="kyc-form-section" class="kyc-card" style="display:none">
+      <h3 class="kyc-card-title">Step 1 — Identity Document</h3>
+      <p class="kyc-card-desc">
+        Enter your details as they appear on your document. You'll then be guided through scanning
+        your ID card or passport and a short liveness check.
+      </p>
+
+      <div class="kyc-form">
+        <div class="kyc-row">
+          <div class="kyc-field">
+            <label>First name (as on ID)</label>
+            <input id="kyc-first" type="text" placeholder="Γιώργος" />
+          </div>
+          <div class="kyc-field">
+            <label>Last name (as on ID)</label>
+            <input id="kyc-last" type="text" placeholder="Παπαδόπουλος" />
+          </div>
+        </div>
+
+        <div class="kyc-row">
+          <div class="kyc-field">
+            <label>Date of birth</label>
+            <input id="kyc-dob" type="date" max="" />
+          </div>
+          <div class="kyc-field">
+            <label>Document type</label>
+            <select id="kyc-idtype">
+              <option value="ID_CARD">Greek ID Card (Αστυνομική Ταυτότητα)</option>
+              <option value="PASSPORT">Passport (Διαβατήριο)</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="kyc-age-error" class="kyc-notice kyc-notice-danger" style="display:none">
+          ⛔ You must be at least 21 years old to register on this platform (ΕΕΕΠ regulation).
+        </div>
+
+        <button id="kyc-start-btn" class="kyc-btn-primary">
+          Continue to ID Scan →
+        </button>
+      </div>
+    </div>
+
+    <!-- ── STEP 1: Pending / in progress ────────────────────────────── -->
+    <div id="kyc-pending-section" class="kyc-card" style="display:none">
+      <h3 class="kyc-card-title">⏳ Verification in Progress</h3>
+      <p class="kyc-card-desc">
+        Your identity is being verified. This usually takes a few minutes.
+        This page will update automatically.
+      </p>
+      <div class="kyc-spinner-row">
+        <div class="spinner"></div>
+        <span>Waiting for verification result…</span>
+      </div>
+    </div>
+
+    <!-- ── STEP 1: Approved ──────────────────────────────────────────── -->
+    <div id="kyc-approved-section" class="kyc-card kyc-card-approved" style="display:none">
+      <div class="kyc-result-icon">✅</div>
+      <h3 class="kyc-card-title">Identity Verified</h3>
+      <p class="kyc-card-desc" id="kyc-approved-name"></p>
+    </div>
+
+    <!-- ── STEP 1: Declined ──────────────────────────────────────────── -->
+    <div id="kyc-declined-section" class="kyc-card kyc-card-declined" style="display:none">
+      <div class="kyc-result-icon">❌</div>
+      <h3 class="kyc-card-title">Verification Failed</h3>
+      <p class="kyc-card-desc" id="kyc-decline-reason">We were unable to verify your identity.</p>
+      <button id="kyc-retry-btn" class="kyc-btn-secondary">Try Again</button>
+    </div>
+
+    <!-- ── STEP 1: Resubmission needed ──────────────────────────────── -->
+    <div id="kyc-resubmit-section" class="kyc-card kyc-card-warning" style="display:none">
+      <div class="kyc-result-icon">📋</div>
+      <h3 class="kyc-card-title">Additional Documents Required</h3>
+      <p class="kyc-card-desc" id="kyc-resubmit-reason">Please re-submit with clearer images.</p>
+      <button id="kyc-resubmit-btn" class="kyc-btn-secondary">Re-submit</button>
+    </div>
+
+    <!-- ── STEP 2: Address proof ─────────────────────────────────────── -->
+    <div id="kyc-address-section" class="kyc-card" style="display:none">
+      <h3 class="kyc-card-title">Step 2 — Address Proof</h3>
+      <p class="kyc-card-desc">
+        Enter your current residential address in Greece. Our team will verify it against your
+        utility bill or bank statement. You can submit a supporting document separately by email.
+      </p>
+
+      <div id="kyc-addr-submitted" class="kyc-notice kyc-notice-ok" style="display:none">
+        ✅ Address submitted — pending manual verification.
+      </div>
+
+      <div id="kyc-addr-form">
+        <div class="kyc-form">
+          <div class="kyc-field">
+            <label>Street address</label>
+            <input id="kyc-addr1" type="text" placeholder="Λεωφόρος Αθηνών 42" />
+          </div>
+          <div class="kyc-row">
+            <div class="kyc-field">
+              <label>City</label>
+              <input id="kyc-city" type="text" placeholder="Αθήνα" />
+            </div>
+            <div class="kyc-field">
+              <label>Postal code (ΤΚ)</label>
+              <input id="kyc-postcode" type="text" placeholder="10431" maxlength="5" />
+            </div>
+          </div>
+          <button id="kyc-addr-btn" class="kyc-btn-primary">Submit Address</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Setup instructions (always visible at bottom) ────────────── -->
+    <details class="kyc-setup" id="kyc-setup-details">
+      <summary>⚙️ Veriff Setup Instructions (for developers)</summary>
+      <div class="kyc-setup-body">
+        <p><strong>1. Create a free Veriff account</strong><br>
+          Go to <a href="https://portal.veriff.com" target="_blank">portal.veriff.com</a> → sign up → create an Integration.</p>
+        <p><strong>2. Copy your API keys</strong><br>
+          From the integration page, copy <code>API Key</code> and <code>Shared Secret Key</code>.</p>
+        <p><strong>3. Add environment variables in Render</strong><br>
+          In your Render service → Environment → add:</p>
+        <div class="kyc-code">
+VERIFF_API_KEY = your_api_key_here
+VERIFF_SECRET  = your_shared_secret_here
+APP_URL        = https://tracker-app-qeoi.onrender.com
+        </div>
+        <p><strong>4. Configure webhook in Veriff portal</strong><br>
+          Under your Integration → Notifications → set the webhook URL to:<br>
+          <code>https://tracker-app-qeoi.onrender.com/api/kyc/webhook</code></p>
+        <p><strong>5. Test with Veriff's sandbox</strong><br>
+          Veriff provides magic test documents in sandbox mode. Any scan will return "approved" or specific
+          decline scenarios so you can test the full flow without a real ID.</p>
+        <p><strong>Greek document support</strong><br>
+          Veriff fully supports: Αστυνομική Ταυτότητα (ID_CARD) and Διαβατήριο (PASSPORT).
+          Liveness check (selfie match) is included automatically in every verification session.</p>
+      </div>
+    </details>
+
+  </div><!-- /#tab-kyc -->
+
   <!-- ══════════════════════════════ TAB: HISTORY ═════════════════════════ -->
   <div id="tab-history" class="tab-panel">
     <div id="history-stats" class="stats-bar"></div>
@@ -176,10 +356,11 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.classList.add('active');
     document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
 
-    // Lazy-load history / devices / networks on first open
+    // Lazy-load history / devices / networks / kyc on first open
     if (btn.dataset.tab === 'history')  loadHistory();
     if (btn.dataset.tab === 'devices')  loadDevices();
     if (btn.dataset.tab === 'networks') loadNetworks();
+    if (btn.dataset.tab === 'kyc' && _kycDeviceId) loadKYC(_kycDeviceId);
   });
 });
 
@@ -323,6 +504,10 @@ function shortId(id) {
       setTimeout(() => { labelBtn.textContent = 'Save'; }, 2000);
     });
 
+    // ── KYC: store device_id + bind buttons ──────────────────────────────────
+    _kycDeviceId = d.device_id;
+    kycBindButtons();
+
     // ── Payment signal setup ──────────────────────────────────────────────────
     _visitData = data;
     const paySection = document.getElementById('payment-section');
@@ -341,6 +526,247 @@ function shortId(id) {
     errorEl.textContent     = `Error collecting data: ${err.message}`;
   }
 })();
+
+// ── KYC tab ───────────────────────────────────────────────────────────────────
+let _kycDeviceId    = null;
+let _kycPollTimer   = null;
+let _kycTabLoaded   = false;
+
+const KYC_STATUS_META = {
+  NOT_STARTED:              { badge: 'kyc-badge-grey',   label: 'Not started' },
+  SESSION_PENDING:          { badge: 'kyc-badge-grey',   label: 'Starting…' },
+  SESSION_CREATED:          { badge: 'kyc-badge-blue',   label: 'In progress' },
+  PENDING:                  { badge: 'kyc-badge-blue',   label: 'Reviewing…' },
+  APPROVED:                 { badge: 'kyc-badge-green',  label: '✅ Approved' },
+  DECLINED:                 { badge: 'kyc-badge-red',    label: '❌ Declined' },
+  RESUBMISSION_REQUESTED:   { badge: 'kyc-badge-orange', label: '📋 More docs needed' },
+  ABANDONED:                { badge: 'kyc-badge-grey',   label: 'Abandoned' },
+  EXPIRED:                  { badge: 'kyc-badge-grey',   label: 'Expired' },
+};
+
+function kycShowSection(id) {
+  ['kyc-form-section','kyc-pending-section','kyc-approved-section',
+   'kyc-declined-section','kyc-resubmit-section','kyc-address-section']
+  .forEach(s => {
+    const el = document.getElementById(s);
+    if (el) el.style.display = s === id ? 'block' : 'none';
+  });
+}
+
+function kycSetBadge(status) {
+  const meta  = KYC_STATUS_META[status] || KYC_STATUS_META['NOT_STARTED'];
+  const badge = document.getElementById('kyc-status-badge');
+  if (!badge) return;
+  badge.className = `kyc-badge ${meta.badge}`;
+  badge.textContent = meta.label;
+}
+
+function kycSetStep(stepIdx) {
+  // 0=id, 1=addr, 2=done
+  ['kyc-step-id','kyc-step-addr','kyc-step-done'].forEach((id, i) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove('kyc-step-active','kyc-step-done-cls','kyc-step-pending');
+    if (i < stepIdx)       el.classList.add('kyc-step-done-cls');
+    else if (i === stepIdx) el.classList.add('kyc-step-active');
+    else                   el.classList.add('kyc-step-pending');
+  });
+}
+
+function kycRenderStatus(data) {
+  const { status, address_status, person, decline_reason, configured } = data;
+
+  kycSetBadge(status);
+
+  if (!configured) {
+    document.getElementById('kyc-not-configured').style.display = 'block';
+  }
+
+  if (status === 'NOT_STARTED' || status === 'SESSION_PENDING') {
+    kycShowSection('kyc-form-section');
+    kycSetStep(0);
+    return;
+  }
+
+  if (status === 'SESSION_CREATED' || status === 'PENDING') {
+    kycShowSection('kyc-pending-section');
+    kycSetStep(0);
+    startKYCPoll();
+    return;
+  }
+
+  if (status === 'APPROVED') {
+    kycShowSection('kyc-approved-section');
+    kycSetStep(address_status === 'SUBMITTED' || address_status === 'VERIFIED' ? 2 : 1);
+
+    if (person) {
+      document.getElementById('kyc-approved-name').textContent =
+        `${person.firstName || ''} ${person.lastName || ''} — identity confirmed`.trim();
+    }
+
+    // Show address step if not submitted yet
+    if (address_status === 'NOT_SUBMITTED') {
+      document.getElementById('kyc-address-section').style.display = 'block';
+    } else {
+      document.getElementById('kyc-address-section').style.display = 'block';
+      document.getElementById('kyc-addr-submitted').style.display = 'block';
+      document.getElementById('kyc-addr-form').style.display = 'none';
+    }
+    stopKYCPoll();
+    return;
+  }
+
+  if (status === 'DECLINED' || status === 'ABANDONED' || status === 'EXPIRED') {
+    kycShowSection('kyc-declined-section');
+    kycSetStep(0);
+    const reasonEl = document.getElementById('kyc-decline-reason');
+    if (reasonEl && decline_reason) reasonEl.textContent = decline_reason;
+    stopKYCPoll();
+    return;
+  }
+
+  if (status === 'RESUBMISSION_REQUESTED') {
+    kycShowSection('kyc-resubmit-section');
+    kycSetStep(0);
+    const reasonEl = document.getElementById('kyc-resubmit-reason');
+    if (reasonEl && decline_reason) reasonEl.textContent = decline_reason;
+    stopKYCPoll();
+    return;
+  }
+}
+
+async function loadKYC(deviceId) {
+  if (!deviceId) return;
+  _kycDeviceId = deviceId;
+
+  try {
+    const data = await fetch(`/api/kyc/status/${deviceId}`).then(r => r.json());
+    kycRenderStatus(data);
+  } catch (err) {
+    console.error('KYC load error:', err);
+  }
+}
+
+function startKYCPoll() {
+  stopKYCPoll();
+  _kycPollTimer = setInterval(async () => {
+    if (!_kycDeviceId) return;
+    try {
+      const data = await fetch(`/api/kyc/status/${_kycDeviceId}`).then(r => r.json());
+      if (!['SESSION_CREATED','PENDING','SESSION_PENDING'].includes(data.status)) {
+        kycRenderStatus(data);
+      }
+    } catch (_) {}
+  }, 5000);
+}
+function stopKYCPoll() {
+  if (_kycPollTimer) { clearInterval(_kycPollTimer); _kycPollTimer = null; }
+}
+
+// Wire up KYC form buttons once DOM is ready
+function kycBindButtons() {
+  // Age gate — set max date on DOB field (must be 21+)
+  const dobInput = document.getElementById('kyc-dob');
+  if (dobInput) {
+    const cutoff = new Date();
+    cutoff.setFullYear(cutoff.getFullYear() - 21);
+    dobInput.max = cutoff.toISOString().split('T')[0];
+  }
+
+  // Start verification
+  document.getElementById('kyc-start-btn')?.addEventListener('click', async () => {
+    const first  = document.getElementById('kyc-first').value.trim();
+    const last   = document.getElementById('kyc-last').value.trim();
+    const dob    = document.getElementById('kyc-dob').value;
+    const idType = document.getElementById('kyc-idtype').value;
+
+    document.getElementById('kyc-age-error').style.display = 'none';
+
+    if (!first || !last || !dob) {
+      alert('Please fill in all required fields.');
+      return;
+    }
+
+    const btn = document.getElementById('kyc-start-btn');
+    btn.disabled = true;
+    btn.textContent = 'Starting…';
+
+    try {
+      const res  = await fetch('/api/kyc/start', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ device_id: _kycDeviceId, first_name: first, last_name: last, dob, id_type: idType }),
+      });
+      const data = await res.json();
+
+      if (data.code === 'UNDERAGE') {
+        document.getElementById('kyc-age-error').style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Continue to ID Scan →';
+        return;
+      }
+
+      if (data.error) {
+        alert(data.error);
+        btn.disabled = false;
+        btn.textContent = 'Continue to ID Scan →';
+        return;
+      }
+
+      if (data.sessionUrl) {
+        // Open Veriff in new tab
+        window.open(data.sessionUrl, '_blank', 'noopener');
+        kycSetBadge('SESSION_CREATED');
+        kycShowSection('kyc-pending-section');
+        startKYCPoll();
+      } else if (data.demo) {
+        // Demo mode — no real session
+        kycShowSection('kyc-pending-section');
+        kycSetBadge('SESSION_CREATED');
+      }
+    } catch (err) {
+      alert('Error starting verification: ' + err.message);
+      btn.disabled = false;
+      btn.textContent = 'Continue to ID Scan →';
+    }
+  });
+
+  // Retry / re-submit
+  ['kyc-retry-btn','kyc-resubmit-btn'].forEach(id => {
+    document.getElementById(id)?.addEventListener('click', () => {
+      kycShowSection('kyc-form-section');
+      kycSetBadge('NOT_STARTED');
+    });
+  });
+
+  // Address submit
+  document.getElementById('kyc-addr-btn')?.addEventListener('click', async () => {
+    const line1     = document.getElementById('kyc-addr1').value.trim();
+    const city      = document.getElementById('kyc-city').value.trim();
+    const postcode  = document.getElementById('kyc-postcode').value.trim();
+
+    if (!line1 || !city || !postcode) { alert('Please fill in all address fields.'); return; }
+
+    const btn = document.getElementById('kyc-addr-btn');
+    btn.disabled = true;
+    btn.textContent = 'Submitting…';
+
+    try {
+      await fetch('/api/kyc/address', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ device_id: _kycDeviceId, address_line1: line1, address_city: city, address_postcode: postcode }),
+      });
+      document.getElementById('kyc-addr-submitted').style.display = 'block';
+      document.getElementById('kyc-addr-form').style.display = 'none';
+      kycSetStep(2);
+    } catch (err) {
+      alert('Error submitting address: ' + err.message);
+      btn.disabled = false;
+      btn.textContent = 'Submit Address';
+    }
+  });
+}
 
 // ── History tab ───────────────────────────────────────────────────────────────
 let historyLoaded = false;

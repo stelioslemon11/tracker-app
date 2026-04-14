@@ -105,6 +105,30 @@ const SCHEMA_STATEMENTS = [
     data       TEXT NOT NULL,
     fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
+  `CREATE TABLE IF NOT EXISTS kyc_applications (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id         TEXT NOT NULL,
+    veriff_session_id TEXT UNIQUE,
+    status            TEXT NOT NULL DEFAULT 'NOT_STARTED',
+    first_name        TEXT,
+    last_name         TEXT,
+    dob               TEXT,
+    id_type           TEXT DEFAULT 'ID_CARD',
+    address_line1     TEXT,
+    address_city      TEXT,
+    address_postcode  TEXT,
+    address_status    TEXT NOT NULL DEFAULT 'NOT_SUBMITTED',
+    veriff_decision   TEXT,
+    veriff_code       INTEGER,
+    veriff_person     TEXT,
+    decline_reason    TEXT,
+    created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    decision_at       TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_kyc_device    ON kyc_applications(device_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_kyc_session   ON kyc_applications(veriff_session_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_kyc_status    ON kyc_applications(status)`,
 ];
 
 // Safe migrations — add new columns to existing databases (fail silently if already present)
@@ -848,6 +872,141 @@ async function getDeviceCluster(start_device_id, { maxDevices = 60 } = {}) {
   };
 }
 
+// ─── KYC ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Get current KYC application for a device (or null).
+ */
+async function getKYCApplication(device_id) {
+  const sql = `SELECT * FROM kyc_applications WHERE device_id = ? ORDER BY id DESC LIMIT 1`;
+  if (USE_TURSO) {
+    const rs = await turso.execute({ sql, args: [device_id] });
+    return tursoFirst(rs) || null;
+  } else {
+    return sqlGet(sql, [device_id]) || null;
+  }
+}
+
+/**
+ * Create a new KYC application (or reset an existing non-approved one).
+ */
+async function createKYCApplication({ device_id, first_name, last_name, dob, id_type }) {
+  if (USE_TURSO) {
+    await turso.execute({
+      sql: `INSERT INTO kyc_applications (device_id, first_name, last_name, dob, id_type, status)
+            VALUES (?, ?, ?, ?, ?, 'SESSION_PENDING')`,
+      args: [device_id, first_name, last_name, dob, id_type || 'ID_CARD'],
+    });
+    const rs = await turso.execute({
+      sql: 'SELECT * FROM kyc_applications WHERE device_id = ? ORDER BY id DESC LIMIT 1',
+      args: [device_id],
+    });
+    return tursoFirst(rs);
+  } else {
+    sqlRun(
+      `INSERT INTO kyc_applications (device_id, first_name, last_name, dob, id_type, status)
+       VALUES (?, ?, ?, ?, ?, 'SESSION_PENDING')`,
+      [device_id, first_name, last_name, dob, id_type || 'ID_CARD'],
+    );
+    return sqlGet('SELECT * FROM kyc_applications WHERE device_id = ? ORDER BY id DESC LIMIT 1', [device_id]);
+  }
+}
+
+/**
+ * Attach a Veriff session ID to a KYC application row.
+ */
+async function attachVeriffSession(kyc_id, veriff_session_id) {
+  if (USE_TURSO) {
+    await turso.execute({
+      sql:  `UPDATE kyc_applications SET veriff_session_id=?, status='SESSION_CREATED', updated_at=datetime('now') WHERE id=?`,
+      args: [veriff_session_id, kyc_id],
+    });
+  } else {
+    sqlRun(
+      `UPDATE kyc_applications SET veriff_session_id=?, status='SESSION_CREATED', updated_at=datetime('now') WHERE id=?`,
+      [veriff_session_id, kyc_id],
+    );
+  }
+}
+
+/**
+ * Update KYC status from a Veriff webhook event.
+ * veriffCode: 9001=approved, 9102=declined-resubmit, 9103=declined-final, 9104=expired
+ */
+async function updateKYCFromWebhook({ veriff_session_id, status, veriff_code, veriff_decision, veriff_person, decline_reason }) {
+  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  if (USE_TURSO) {
+    await turso.execute({
+      sql: `UPDATE kyc_applications SET
+              status=?, veriff_code=?, veriff_decision=?, veriff_person=?,
+              decline_reason=?, decision_at=?, updated_at=datetime('now')
+            WHERE veriff_session_id=?`,
+      args: [status, veriff_code || null, veriff_decision || null,
+             veriff_person ? JSON.stringify(veriff_person) : null,
+             decline_reason || null, now, veriff_session_id],
+    });
+  } else {
+    sqlRun(
+      `UPDATE kyc_applications SET
+         status=?, veriff_code=?, veriff_decision=?, veriff_person=?,
+         decline_reason=?, decision_at=?, updated_at=datetime('now')
+       WHERE veriff_session_id=?`,
+      [status, veriff_code || null, veriff_decision || null,
+       veriff_person ? JSON.stringify(veriff_person) : null,
+       decline_reason || null, now, veriff_session_id],
+    );
+  }
+}
+
+/**
+ * Update address proof fields for a KYC application.
+ */
+async function updateKYCAddress({ device_id, address_line1, address_city, address_postcode }) {
+  if (USE_TURSO) {
+    await turso.execute({
+      sql: `UPDATE kyc_applications SET
+              address_line1=?, address_city=?, address_postcode=?,
+              address_status='SUBMITTED', updated_at=datetime('now')
+            WHERE device_id=? AND status IN ('APPROVED','SESSION_CREATED','SESSION_PENDING','PENDING')
+            ORDER BY id DESC LIMIT 1`,
+      args: [address_line1, address_city, address_postcode, device_id],
+    });
+  } else {
+    const app = sqlGet(
+      `SELECT id FROM kyc_applications WHERE device_id=? ORDER BY id DESC LIMIT 1`,
+      [device_id],
+    );
+    if (app) {
+      sqlRun(
+        `UPDATE kyc_applications SET
+           address_line1=?, address_city=?, address_postcode=?,
+           address_status='SUBMITTED', updated_at=datetime('now')
+         WHERE id=?`,
+        [address_line1, address_city, address_postcode, app.id],
+      );
+    }
+  }
+}
+
+/**
+ * Admin: get all KYC applications for review dashboard.
+ */
+async function getAllKYCApplications(limit = 100) {
+  const sql = `
+    SELECT k.*, d.browser, d.os, d.last_ip, d.last_city
+    FROM kyc_applications k
+    LEFT JOIN devices d ON d.device_id = k.device_id
+    ORDER BY k.updated_at DESC
+    LIMIT ?
+  `;
+  if (USE_TURSO) {
+    const rs = await turso.execute({ sql, args: [limit] });
+    return tursoRows(rs);
+  } else {
+    return sqlAll(sql, [limit]);
+  }
+}
+
 async function updateNetworkLabel(network_id, label) {
   if (USE_TURSO) {
     await turso.execute({
@@ -879,4 +1038,10 @@ module.exports = {
   getBINCache,
   setBINCache,
   getDeviceCluster,
+  getKYCApplication,
+  createKYCApplication,
+  attachVeriffSession,
+  updateKYCFromWebhook,
+  updateKYCAddress,
+  getAllKYCApplications,
 };
