@@ -49,11 +49,10 @@
 
       <p class="result-desc" id="result-desc">—</p>
 
-      <!-- Fingerprint-match notice -->
+      <!-- Returning device notice (shown when device is known) -->
       <div class="fp-banner" id="fp-banner">
-        ⚠️  <strong>Fingerprint match detected.</strong> Your browser fingerprint matches
-        a previously seen device even though your persistent ID is new.
-        This suggests cookies were cleared or you're using a different profile.
+        ℹ️  <strong>Returning device detected.</strong>
+        This device has been seen before on a previous visit.
       </div>
 
       <!-- Risk score panel (shown for ORANGE tier) -->
@@ -207,21 +206,25 @@ function shortId(id) {
     document.getElementById('result-label').textContent = data.label;
     document.getElementById('result-desc').textContent  = data.description;
 
-    // Fingerprint match banner
-    if (data.fingerprintMatch && !data.knownDevice) {
+    // Returning device notice
+    if (data.knownDevice) {
       document.getElementById('fp-banner').style.display = 'block';
     }
 
-    // Risk score panel (shown whenever riskScore > 0, highlighted for ORANGE)
+    // Risk score panel — show for ORANGE and RED
     if (data.riskScore > 0) {
       const panel   = document.getElementById('risk-panel');
       const barFill = document.getElementById('risk-bar-fill');
       const scoreEl = document.getElementById('risk-score-num');
       const reasons = document.getElementById('risk-reasons');
+      const lbl     = document.querySelector('.risk-label');
 
       panel.style.display = 'block';
       scoreEl.textContent = `${data.riskScore} / 100`;
-      barFill.style.width = `${data.riskScore}%`;
+      barFill.style.width  = `${Math.min(data.riskScore, 100)}%`;
+      if (lbl) lbl.textContent = data.correlation === 'RED'
+        ? '🚨 Identity Analysis'
+        : '⚠️ Risk Analysis';
 
       if (data.riskReasons && data.riskReasons.length) {
         reasons.innerHTML = data.riskReasons.map(r => `
@@ -321,11 +324,9 @@ async function loadHistory() {
     { label: 'Total visits',   val: stats.total_visits,   dot: null },
     { label: 'Devices seen',   val: stats.total_devices,  dot: null },
     { label: 'Networks seen',  val: stats.total_networks, dot: null },
-    { label: 'GREEN',  val: stats.green_count,  dot: '#22c55e' },
-    { label: 'YELLOW', val: stats.yellow_count, dot: '#eab308' },
-    { label: 'BLUE',   val: stats.blue_count,   dot: '#3b82f6' },
-    { label: 'ORANGE', val: stats.orange_count, dot: '#f97316' },
-    { label: 'RED',    val: stats.red_count,    dot: '#ef4444' },
+    { label: 'Clean',      val: stats.green_count,  dot: '#22c55e' },
+    { label: 'Suspicious', val: stats.orange_count, dot: '#f97316' },
+    { label: 'Confirmed',  val: stats.red_count,    dot: '#ef4444' },
   ].map(s => `
     <div class="stat-pill">
       ${s.dot ? `<span class="dot" style="background:${s.dot}"></span>` : ''}
