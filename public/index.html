@@ -121,6 +121,42 @@
       <div id="connections-content"></div>
     </div>
 
+    <!-- Fingerprint verification tools -->
+    <details class="fp-tools-panel" style="margin-top:24px">
+      <summary>🔬 Fingerprint Verification Tools</summary>
+      <div class="fp-tools-body">
+        <p>Use these external tools to inspect and verify what each fingerprint component reports for this browser.</p>
+
+        <div class="fp-tools-grid">
+          <div class="fp-tool-item">
+            <div class="fp-tool-label">General overview</div>
+            <a href="https://browserleaks.com/javascript" target="_blank" rel="noopener">browserleaks.com/javascript</a>
+            <span class="fp-tool-desc">User-Agent, platform, language, timezone, hardware concurrency, device memory</span>
+          </div>
+          <div class="fp-tool-item">
+            <div class="fp-tool-label">Canvas fingerprint</div>
+            <a href="https://browserleaks.com/canvas" target="_blank" rel="noopener">browserleaks.com/canvas</a>
+            <span class="fp-tool-desc">Shows the canvas hash — noise injection should make each device unique</span>
+          </div>
+          <div class="fp-tool-item">
+            <div class="fp-tool-label">WebGL / GPU</div>
+            <a href="https://browserleaks.com/webgl" target="_blank" rel="noopener">browserleaks.com/webgl</a>
+            <span class="fp-tool-desc">GPU vendor and renderer string — strong identifiers across sessions</span>
+          </div>
+          <div class="fp-tool-item">
+            <div class="fp-tool-label">WebRTC leak</div>
+            <a href="https://browserleaks.com/webrtc" target="_blank" rel="noopener">browserleaks.com/webrtc</a>
+            <span class="fp-tool-desc">Should show "No leak" if WebRTC is properly blocked</span>
+          </div>
+          <div class="fp-tool-item">
+            <div class="fp-tool-label">Full anonymity score</div>
+            <a href="https://coveryourtracks.eff.org" target="_blank" rel="noopener">coveryourtracks.eff.org</a>
+            <span class="fp-tool-desc">EFF's tool — click "Test Your Browser" for a full uniqueness score</span>
+          </div>
+        </div>
+      </div>
+    </details>
+
   </div><!-- /#tab-result -->
 
   <!-- ══════════════════════════════ TAB: KYC ════════════════════════════ -->
