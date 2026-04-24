@@ -84,8 +84,6 @@ const SCHEMA_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_visits_time    ON visits(visit_time)`,
   `CREATE INDEX IF NOT EXISTS idx_visits_fp      ON visits(fingerprint_id)`,
   `CREATE INDEX IF NOT EXISTS idx_devices_fp     ON devices(fingerprint_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_devices_city   ON devices(last_city)`,
-  `CREATE INDEX IF NOT EXISTS idx_devices_isp    ON devices(last_isp)`,
   `CREATE TABLE IF NOT EXISTS payment_methods (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     token       TEXT    NOT NULL,
@@ -99,7 +97,6 @@ const SCHEMA_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_pm_token     ON payment_methods(token)`,
   `CREATE INDEX IF NOT EXISTS idx_pm_device_id ON payment_methods(device_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_pm_bin8      ON payment_methods(bin8)`,
   `CREATE TABLE IF NOT EXISTS bin_cache (
     bin6       TEXT PRIMARY KEY,
     data       TEXT NOT NULL,
@@ -155,15 +152,20 @@ const SCHEMA_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_kyc_manual_afm    ON kyc_manual(afm)`,
 ];
 
-// Safe migrations — add new columns to existing databases (fail silently if already present)
+// Safe migrations — add new columns AND dependent indexes (all fail silently if already present)
 const MIGRATIONS = [
   `ALTER TABLE devices ADD COLUMN last_ip      TEXT`,
   `ALTER TABLE devices ADD COLUMN last_isp     TEXT`,
   `ALTER TABLE devices ADD COLUMN last_city    TEXT`,
+  // indexes on columns added above — must come AFTER the ALTER TABLEs
+  `CREATE INDEX IF NOT EXISTS idx_devices_city ON devices(last_city)`,
+  `CREATE INDEX IF NOT EXISTS idx_devices_isp  ON devices(last_isp)`,
   `ALTER TABLE devices ADD COLUMN device_name  TEXT`,
   `ALTER TABLE visits  ADD COLUMN risk_score   INTEGER DEFAULT 0`,
   `ALTER TABLE visits  ADD COLUMN risk_factors TEXT`,
   `ALTER TABLE payment_methods ADD COLUMN bin8 TEXT`,
+  // index on bin8 — must come AFTER the ALTER TABLE above
+  `CREATE INDEX IF NOT EXISTS idx_pm_bin8 ON payment_methods(bin8)`,
 ];
 
 // ─── sql.js helpers ───────────────────────────────────────────────────────────
@@ -217,12 +219,12 @@ async function initDB() {
     const { createClient } = require('@libsql/client');
     turso = createClient({ url: TURSO_URL, authToken: TURSO_TOKEN });
 
-    // Create tables + indexes
+    // Create tables + indexes (fail silently on pre-existing objects)
     for (const stmt of SCHEMA_STATEMENTS) {
-      await turso.execute(stmt);
+      try { await turso.execute(stmt); } catch (_) { /* table/index already exists */ }
     }
 
-    // Safe column migrations
+    // Safe column migrations + dependent indexes (all fail silently if already present)
     for (const m of MIGRATIONS) {
       try { await turso.execute(m); } catch (_) { /* already exists */ }
     }
