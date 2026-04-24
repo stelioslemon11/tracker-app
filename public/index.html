@@ -414,6 +414,51 @@ function shortId(id) {
   return `<span title="${id}" style="font-family:monospace;font-size:.8rem">${id.slice(0,12)}…</span>`;
 }
 
+// ── Device naming — runs immediately on page load ─────────────────────────────
+// Uses a stable localStorage key independent of device_id.
+// If no name is saved, the modal blocks the page until the user names or skips.
+// After the visit API returns, the name is associated with the real device_id.
+
+const _NAME_KEY = 'device_display_name';
+let _pendingDeviceName = localStorage.getItem(_NAME_KEY) || null;
+
+function openNameModal(onSave) {
+  const modal = document.getElementById('name-modal');
+  const inp   = document.getElementById('name-modal-input');
+  inp.value = _pendingDeviceName || '';
+  modal.style.display = 'flex';
+  inp.focus();
+
+  // Clone buttons to remove any old listeners
+  const saveBtn = document.getElementById('name-modal-save');
+  const skipBtn = document.getElementById('name-modal-skip');
+  const newSave = saveBtn.cloneNode(true);
+  const newSkip = skipBtn.cloneNode(true);
+  saveBtn.replaceWith(newSave);
+  skipBtn.replaceWith(newSkip);
+
+  function doSave() {
+    const val = inp.value.trim();
+    if (!val) { inp.focus(); return; }
+    modal.style.display = 'none';
+    _pendingDeviceName = val;
+    localStorage.setItem(_NAME_KEY, val);
+    if (onSave) onSave(val);
+  }
+  newSave.addEventListener('click', doSave);
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') doSave(); });
+  newSkip.addEventListener('click', () => { modal.style.display = 'none'; if (onSave) onSave(null); });
+}
+
+// Show modal immediately if no name has ever been set
+const _namePromise = new Promise(resolve => {
+  if (_pendingDeviceName) {
+    resolve(_pendingDeviceName);
+  } else {
+    openNameModal(resolve);
+  }
+});
+
 // ── Main: collect + render ─────────────────────────────────────────────────────
 (async () => {
   const loadingEl  = document.getElementById('loading');
@@ -421,6 +466,9 @@ function shortId(id) {
   const errorEl    = document.getElementById('error-box');
 
   try {
+    // Wait for the name modal to be completed before collecting/loading
+    await _namePromise;
+
     const data = await window.TrackerCollector.collectAndSubmit();
 
     loadingEl.style.display = 'none';
@@ -431,25 +479,28 @@ function shortId(id) {
     document.getElementById('result-label').textContent = data.label;
     document.getElementById('result-desc').textContent  = data.description;
 
-    // ── Device name bar ──────────────────────────────────────────────────────
+    // ── Device name — associate with real device_id now we have it ────────────
     const _deviceId = data.device.device_id;
-    let _deviceName = data.device.device_name || localStorage.getItem('device_name_' + _deviceId) || null;
+    // Merge: prefer what's in localStorage (just saved) over what server returned
+    let _deviceName = _pendingDeviceName || data.device.device_name || null;
+    // Persist to per-device key and sync to server
+    if (_deviceName) {
+      localStorage.setItem('device_name_' + _deviceId, _deviceName);
+    }
 
     function renderDeviceNameBar(name) {
-      const bar = document.getElementById('device-name-bar');
+      const bar     = document.getElementById('device-name-bar');
       const display = document.getElementById('device-name-display');
-      if (name) {
-        display.textContent = name;
-        bar.style.display = 'flex';
-      } else {
-        bar.style.display = 'none';
-      }
+      if (name) { display.textContent = name; bar.style.display = 'flex'; }
+      else       { bar.style.display = 'none'; }
     }
 
     async function saveDeviceName(name) {
       const clean = (name || '').trim().slice(0, 64);
       if (!clean) return;
       _deviceName = clean;
+      _pendingDeviceName = clean;
+      localStorage.setItem(_NAME_KEY, clean);
       localStorage.setItem('device_name_' + _deviceId, clean);
       await fetch('/api/device/name', {
         method: 'POST',
@@ -459,50 +510,20 @@ function shortId(id) {
       renderDeviceNameBar(clean);
     }
 
-    renderDeviceNameBar(_deviceName);
-
-    // Show modal on first visit AND no name saved yet
-    if (!data.knownDevice && !_deviceName) {
-      const modal = document.getElementById('name-modal');
-      modal.style.display = 'flex';
-      const inp = document.getElementById('name-modal-input');
-      inp.focus();
-      document.getElementById('name-modal-save').addEventListener('click', async () => {
-        const val = inp.value.trim();
-        if (!val) { inp.focus(); return; }
-        modal.style.display = 'none';
-        await saveDeviceName(val);
-      });
-      inp.addEventListener('keydown', async e => {
-        if (e.key === 'Enter') {
-          const val = inp.value.trim();
-          if (!val) return;
-          modal.style.display = 'none';
-          await saveDeviceName(val);
-        }
-      });
-      document.getElementById('name-modal-skip').addEventListener('click', () => {
-        modal.style.display = 'none';
-      });
+    // Sync name to server (covers first visit where modal ran before we had device_id)
+    if (_deviceName && !data.device.device_name) {
+      fetch('/api/device/name', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_id: _deviceId, name: _deviceName }),
+      }).catch(() => {});
     }
 
-    // Rename button (always visible once name set)
+    renderDeviceNameBar(_deviceName);
+
+    // Rename button — always available
     document.getElementById('device-name-rename').addEventListener('click', () => {
-      const modal = document.getElementById('name-modal');
-      const inp   = document.getElementById('name-modal-input');
-      inp.value = _deviceName || '';
-      modal.style.display = 'flex';
-      inp.focus();
-      // Replace save handler
-      const saveBtn = document.getElementById('name-modal-save');
-      const newSave = saveBtn.cloneNode(true);
-      saveBtn.replaceWith(newSave);
-      newSave.addEventListener('click', async () => {
-        const val = inp.value.trim();
-        if (!val) { inp.focus(); return; }
-        modal.style.display = 'none';
-        await saveDeviceName(val);
-      });
+      openNameModal(async val => { if (val) await saveDeviceName(val); });
     });
 
     // ── IP Status panel ──────────────────────────────────────────────────────
