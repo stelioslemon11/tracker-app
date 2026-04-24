@@ -1280,16 +1280,18 @@ tbody td {
   transition:    background .2s;
 }
 .name-modal-btn-primary:hover { background: rgba(59,130,246,.28); }
-.name-modal-btn-skip {
-  background:  transparent;
-  border:      none;
-  color:       var(--muted);
-  cursor:      pointer;
-  font-size:   .82rem;
-  text-align:  center;
-  padding:     4px 0;
+.name-modal-btn-secondary {
+  background:    var(--surface2);
+  border:        1px solid var(--border);
+  color:         var(--text-dim);
+  padding:       10px 0;
+  border-radius: var(--radius-sm);
+  cursor:        pointer;
+  font-size:     .88rem;
+  font-weight:   500;
+  transition:    background .2s, color .2s;
 }
-.name-modal-btn-skip:hover { color: var(--text-dim); }
+.name-modal-btn-secondary:hover { background: var(--border); color: var(--text); }
 
 /* ── Device name bar (inline, below title) ───────────────────────────────────── */
 .device-name-bar {

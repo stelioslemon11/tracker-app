@@ -41,18 +41,43 @@
     <div id="error-box"></div>
 
     <!-- Main result box (hidden until data arrives) -->
-    <!-- Device naming modal (shown on first visit if no name saved) -->
-    <div id="name-modal" style="display:none">
+    <!-- Device welcome modal — always shown on load -->
+    <div id="name-modal">
       <div class="name-modal-backdrop"></div>
       <div class="name-modal-box">
-        <div class="name-modal-icon">🏷️</div>
-        <h2 class="name-modal-title">Name This Device</h2>
-        <p class="name-modal-desc">Give this device a label so it's easy to recognise in the dashboard. You can change it any time.</p>
-        <input id="name-modal-input" class="name-modal-input" type="text" placeholder="e.g. John's iPhone, Office PC…" maxlength="64" />
-        <div class="name-modal-actions">
-          <button id="name-modal-save" class="name-modal-btn-primary">Save Name</button>
-          <button id="name-modal-skip" class="name-modal-btn-skip">Skip for now</button>
+
+        <!-- Step 1: First time? -->
+        <div id="nm-step1">
+          <div class="name-modal-icon">👋</div>
+          <h2 class="name-modal-title">Welcome!</h2>
+          <p class="name-modal-desc">Is this your first time visiting on this device?</p>
+          <div class="name-modal-actions">
+            <button id="nm-btn-first" class="name-modal-btn-primary">Yes, first visit</button>
+            <button id="nm-btn-return" class="name-modal-btn-secondary">No, I've been here before</button>
+          </div>
         </div>
+
+        <!-- Step 2: Enter name (shown after "Yes") -->
+        <div id="nm-step2" style="display:none">
+          <div class="name-modal-icon">🏷️</div>
+          <h2 class="name-modal-title">Name This Device</h2>
+          <p class="name-modal-desc">Give this device a label so it's easy to recognise. You can rename it any time.</p>
+          <input id="name-modal-input" class="name-modal-input" type="text" placeholder="e.g. John's iPhone, Office PC…" maxlength="64" autocomplete="off" />
+          <div class="name-modal-actions">
+            <button id="name-modal-save" class="name-modal-btn-primary">Save &amp; Continue</button>
+          </div>
+        </div>
+
+        <!-- Step 3: Welcome back (shown after "No" + name found) -->
+        <div id="nm-step3" style="display:none">
+          <div class="name-modal-icon">✅</div>
+          <h2 class="name-modal-title">Welcome back!</h2>
+          <p class="name-modal-desc" id="nm-welcome-text"></p>
+          <div class="name-modal-actions">
+            <button id="nm-btn-continue" class="name-modal-btn-primary">Continue</button>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -414,49 +439,69 @@ function shortId(id) {
   return `<span title="${id}" style="font-family:monospace;font-size:.8rem">${id.slice(0,12)}…</span>`;
 }
 
-// ── Device naming — runs immediately on page load ─────────────────────────────
-// Uses a stable localStorage key independent of device_id.
-// If no name is saved, the modal blocks the page until the user names or skips.
-// After the visit API returns, the name is associated with the real device_id.
+// ── Device welcome modal — always shown on page load ──────────────────────────
+// Flow:
+//   Step 1 → "First visit?" YES → Step 2 (enter name) → resolve(name)
+//                           NO  → Step 3 (welcome back, show saved name) → resolve(savedName)
+// Dashboard loading is blocked until the modal is dismissed.
 
 const _NAME_KEY = 'device_display_name';
 let _pendingDeviceName = localStorage.getItem(_NAME_KEY) || null;
 
-function openNameModal(onSave) {
-  const modal = document.getElementById('name-modal');
-  const inp   = document.getElementById('name-modal-input');
-  inp.value = _pendingDeviceName || '';
-  modal.style.display = 'flex';
-  inp.focus();
-
-  // Clone buttons to remove any old listeners
-  const saveBtn = document.getElementById('name-modal-save');
-  const skipBtn = document.getElementById('name-modal-skip');
-  const newSave = saveBtn.cloneNode(true);
-  const newSkip = skipBtn.cloneNode(true);
-  saveBtn.replaceWith(newSave);
-  skipBtn.replaceWith(newSkip);
-
-  function doSave() {
-    const val = inp.value.trim();
-    if (!val) { inp.focus(); return; }
-    modal.style.display = 'none';
-    _pendingDeviceName = val;
-    localStorage.setItem(_NAME_KEY, val);
-    if (onSave) onSave(val);
-  }
-  newSave.addEventListener('click', doSave);
-  inp.addEventListener('keydown', e => { if (e.key === 'Enter') doSave(); });
-  newSkip.addEventListener('click', () => { modal.style.display = 'none'; if (onSave) onSave(null); });
+function nmShow(stepId) {
+  ['nm-step1','nm-step2','nm-step3'].forEach(id => {
+    document.getElementById(id).style.display = id === stepId ? 'block' : 'none';
+  });
 }
 
-// Show modal immediately if no name has ever been set
+// Always show the modal — resolve promise when user is done
 const _namePromise = new Promise(resolve => {
-  if (_pendingDeviceName) {
-    resolve(_pendingDeviceName);
-  } else {
-    openNameModal(resolve);
+  const modal = document.getElementById('name-modal');
+  modal.style.display = 'flex';
+  nmShow('nm-step1');
+
+  // Step 1 → First visit
+  document.getElementById('nm-btn-first').addEventListener('click', () => {
+    nmShow('nm-step2');
+    const inp = document.getElementById('name-modal-input');
+    inp.value = '';
+    inp.focus();
+  });
+
+  // Step 1 → Returning visitor
+  document.getElementById('nm-btn-return').addEventListener('click', () => {
+    if (_pendingDeviceName) {
+      // Has a saved name — show welcome back
+      document.getElementById('nm-welcome-text').textContent =
+        `Continuing as "${_pendingDeviceName}". Your device settings are saved.`;
+      nmShow('nm-step3');
+    } else {
+      // No name saved — treat as first visit
+      nmShow('nm-step2');
+      document.getElementById('name-modal-input').focus();
+    }
+  });
+
+  // Step 2 → Save name
+  function doSaveName() {
+    const inp = document.getElementById('name-modal-input');
+    const val = inp.value.trim();
+    if (!val) { inp.focus(); return; }
+    _pendingDeviceName = val;
+    localStorage.setItem(_NAME_KEY, val);
+    modal.style.display = 'none';
+    resolve(val);
   }
+  document.getElementById('name-modal-save').addEventListener('click', doSaveName);
+  document.getElementById('name-modal-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') doSaveName();
+  });
+
+  // Step 3 → Continue with existing name
+  document.getElementById('nm-btn-continue').addEventListener('click', () => {
+    modal.style.display = 'none';
+    resolve(_pendingDeviceName);
+  });
 });
 
 // ── Main: collect + render ─────────────────────────────────────────────────────
@@ -521,9 +566,27 @@ const _namePromise = new Promise(resolve => {
 
     renderDeviceNameBar(_deviceName);
 
-    // Rename button — always available
+    // Rename button — opens name step directly (skip the "first time?" question)
     document.getElementById('device-name-rename').addEventListener('click', () => {
-      openNameModal(async val => { if (val) await saveDeviceName(val); });
+      const modal = document.getElementById('name-modal');
+      const inp   = document.getElementById('name-modal-input');
+      inp.value = _deviceName || '';
+      modal.style.display = 'flex';
+      nmShow('nm-step2');
+      inp.focus();
+
+      const saveBtn = document.getElementById('name-modal-save');
+      const newSave = saveBtn.cloneNode(true);
+      saveBtn.replaceWith(newSave);
+      const inp2 = document.getElementById('name-modal-input');
+      function doRename() {
+        const val = inp2.value.trim();
+        if (!val) { inp2.focus(); return; }
+        modal.style.display = 'none';
+        saveDeviceName(val);
+      }
+      newSave.addEventListener('click', doRename);
+      inp2.addEventListener('keydown', e => { if (e.key === 'Enter') doRename(); });
     });
 
     // ── IP Status panel ──────────────────────────────────────────────────────
