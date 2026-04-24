@@ -157,9 +157,10 @@ const SCHEMA_STATEMENTS = [
 
 // Safe migrations — add new columns to existing databases (fail silently if already present)
 const MIGRATIONS = [
-  `ALTER TABLE devices ADD COLUMN last_ip   TEXT`,
-  `ALTER TABLE devices ADD COLUMN last_isp  TEXT`,
-  `ALTER TABLE devices ADD COLUMN last_city TEXT`,
+  `ALTER TABLE devices ADD COLUMN last_ip      TEXT`,
+  `ALTER TABLE devices ADD COLUMN last_isp     TEXT`,
+  `ALTER TABLE devices ADD COLUMN last_city    TEXT`,
+  `ALTER TABLE devices ADD COLUMN device_name  TEXT`,
   `ALTER TABLE visits  ADD COLUMN risk_score   INTEGER DEFAULT 0`,
   `ALTER TABLE visits  ADD COLUMN risk_factors TEXT`,
   `ALTER TABLE payment_methods ADD COLUMN bin8 TEXT`,
@@ -811,7 +812,7 @@ async function setBINCache(bin6, data) {
 // ─── Device detail helper (used by cluster BFS) ───────────────────────────────
 
 async function getDeviceDetails(device_id) {
-  const sql = `SELECT device_id, fingerprint_id, last_ip, last_isp, last_city, browser, os, visit_count, last_seen
+  const sql = `SELECT device_id, fingerprint_id, last_ip, last_isp, last_city, browser, os, visit_count, last_seen, device_name
                FROM devices WHERE device_id = ?`;
   if (USE_TURSO) {
     const rs = await turso.execute({ sql, args: [device_id] });
@@ -1184,6 +1185,78 @@ async function updateNetworkLabel(network_id, label) {
   }
 }
 
+// ─── Device naming ────────────────────────────────────────────────────────────
+
+async function setDeviceName(device_id, name) {
+  const clean = (name || '').trim().slice(0, 64);
+  if (!clean) return;
+  if (USE_TURSO) {
+    await turso.execute({
+      sql:  `UPDATE devices SET device_name = ? WHERE device_id = ?`,
+      args: [clean, device_id],
+    });
+  } else {
+    sqlRun(`UPDATE devices SET device_name = ? WHERE device_id = ?`, [clean, device_id]);
+  }
+}
+
+async function getDeviceName(device_id) {
+  if (USE_TURSO) {
+    const rs = await turso.execute({
+      sql:  `SELECT device_name FROM devices WHERE device_id = ? LIMIT 1`,
+      args: [device_id],
+    });
+    const row = tursoFirst(rs);
+    return row ? row.device_name : null;
+  } else {
+    const row = sqlGet(`SELECT device_name FROM devices WHERE device_id = ? LIMIT 1`, [device_id]);
+    return row ? row.device_name : null;
+  }
+}
+
+// ─── IP history ───────────────────────────────────────────────────────────────
+
+async function getIPHistory(ip) {
+  // Returns { visitCount, firstSeen, lastSeen, uniqueDevices } for this exact IP
+  if (USE_TURSO) {
+    const rs = await turso.execute({
+      sql:  `SELECT visit_count, first_seen, last_seen FROM networks WHERE ip = ? LIMIT 1`,
+      args: [ip],
+    });
+    const net = tursoFirst(rs);
+
+    // Count unique devices that used this IP via visits
+    const drs = await turso.execute({
+      sql:  `SELECT COUNT(DISTINCT device_id) AS cnt FROM visits v
+             JOIN networks n ON n.network_id = v.network_id
+             WHERE n.ip = ?`,
+      args: [ip],
+    });
+    const drow = tursoFirst(drs);
+
+    if (!net) return { isNew: true, visitCount: 0, uniqueDevices: 0, firstSeen: null, lastSeen: null };
+    return {
+      isNew:         false,
+      visitCount:    net.visit_count    || 0,
+      uniqueDevices: drow ? (drow.cnt || 0) : 0,
+      firstSeen:     net.first_seen     || null,
+      lastSeen:      net.last_seen      || null,
+    };
+  } else {
+    const net = sqlGet(`SELECT visit_count, first_seen, last_seen FROM networks WHERE ip = ? LIMIT 1`, [ip]);
+    const drow = sqlGet(`SELECT COUNT(DISTINCT v.device_id) AS cnt FROM visits v
+                         JOIN networks n ON n.network_id = v.network_id WHERE n.ip = ?`, [ip]);
+    if (!net) return { isNew: true, visitCount: 0, uniqueDevices: 0, firstSeen: null, lastSeen: null };
+    return {
+      isNew:         false,
+      visitCount:    net.visit_count    || 0,
+      uniqueDevices: drow ? (drow.cnt || 0) : 0,
+      firstSeen:     net.first_seen     || null,
+      lastSeen:      net.last_seen      || null,
+    };
+  }
+}
+
 module.exports = {
   initDB,
   upsertNetwork,
@@ -1201,6 +1274,10 @@ module.exports = {
   updateNetworkLabel,
   upsertPaymentMethod,
   getGraphLinks,
+  // device naming + IP history
+  setDeviceName,
+  getDeviceName,
+  getIPHistory,
   // ── kyc_manual helpers ──────────────────────────────────────────────────────
   getBINCache,
   setBINCache,

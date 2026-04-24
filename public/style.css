@@ -1217,3 +1217,133 @@ tbody td {
   line-height: 1.45;
   margin-top:  2px;
 }
+
+/* ── Device naming modal ─────────────────────────────────────────────────────── */
+#name-modal {
+  position:        fixed;
+  inset:           0;
+  display:         flex;
+  align-items:     center;
+  justify-content: center;
+  z-index:         9000;
+  padding:         24px;
+}
+.name-modal-backdrop {
+  position:   absolute;
+  inset:      0;
+  background: rgba(0,0,0,.7);
+  backdrop-filter: blur(4px);
+}
+.name-modal-box {
+  position:      relative;
+  background:    var(--surface);
+  border:        1px solid var(--border);
+  border-radius: var(--radius);
+  padding:       32px 28px 24px;
+  max-width:     420px;
+  width:         100%;
+  box-shadow:    var(--shadow);
+  display:       flex;
+  flex-direction: column;
+  gap:           10px;
+}
+.name-modal-icon  { font-size: 2rem; text-align: center; }
+.name-modal-title { font-size: 1.1rem; font-weight: 700; text-align: center; }
+.name-modal-desc  { font-size: .83rem; color: var(--text-dim); line-height: 1.6; text-align: center; }
+.name-modal-input {
+  background:    var(--surface2);
+  border:        1px solid var(--border);
+  color:         var(--text);
+  padding:       10px 14px;
+  border-radius: var(--radius-sm);
+  font-size:     .95rem;
+  font-family:   var(--font);
+  width:         100%;
+  margin-top:    4px;
+}
+.name-modal-input:focus { outline: none; border-color: #3b82f6; }
+.name-modal-actions {
+  display:   flex;
+  flex-direction: column;
+  gap:       8px;
+  margin-top: 4px;
+}
+.name-modal-btn-primary {
+  background:    rgba(59,130,246,.18);
+  border:        1px solid rgba(59,130,246,.35);
+  color:         #93c5fd;
+  padding:       10px 0;
+  border-radius: var(--radius-sm);
+  cursor:        pointer;
+  font-size:     .9rem;
+  font-weight:   600;
+  transition:    background .2s;
+}
+.name-modal-btn-primary:hover { background: rgba(59,130,246,.28); }
+.name-modal-btn-skip {
+  background:  transparent;
+  border:      none;
+  color:       var(--muted);
+  cursor:      pointer;
+  font-size:   .82rem;
+  text-align:  center;
+  padding:     4px 0;
+}
+.name-modal-btn-skip:hover { color: var(--text-dim); }
+
+/* ── Device name bar (inline, below title) ───────────────────────────────────── */
+.device-name-bar {
+  display:     flex;
+  align-items: center;
+  gap:         8px;
+  background:  rgba(59,130,246,.07);
+  border:      1px solid rgba(59,130,246,.18);
+  border-radius: var(--radius-sm);
+  padding:     8px 14px;
+  margin-bottom: 12px;
+  font-size:   .88rem;
+  font-weight: 600;
+  color:       #93c5fd;
+}
+.device-name-icon { font-size: 1rem; }
+.device-name-rename-btn {
+  background:  transparent;
+  border:      none;
+  color:       var(--muted);
+  cursor:      pointer;
+  font-size:   .75rem;
+  margin-left: auto;
+  padding:     2px 6px;
+  border-radius: 4px;
+}
+.device-name-rename-btn:hover { color: #93c5fd; background: rgba(59,130,246,.1); }
+
+/* ── IP Status panel ─────────────────────────────────────────────────────────── */
+.ip-status-panel {
+  display:       flex;
+  align-items:   flex-start;
+  gap:           12px;
+  border-radius: var(--radius-sm);
+  padding:       12px 16px;
+  margin-bottom: 14px;
+  font-size:     .84rem;
+  line-height:   1.55;
+}
+.ip-status-clean    { background: rgba(34,197,94,.07);  border: 1px solid rgba(34,197,94,.22);  color: #86efac; }
+.ip-status-returning{ background: rgba(249,115,22,.07); border: 1px solid rgba(249,115,22,.22); color: #fdba74; }
+.ip-status-dot {
+  width:        10px;
+  height:       10px;
+  border-radius: 50%;
+  flex-shrink:  0;
+  margin-top:   4px;
+}
+.ip-status-dot-green  { background: #22c55e; box-shadow: 0 0 6px #22c55e80; }
+.ip-status-dot-orange { background: #f97316; box-shadow: 0 0 6px #f9731680; }
+
+/* ── Cluster device name badge ────────────────────────────────────────────────── */
+.cluster-device-name {
+  font-weight:   700;
+  color:         #93c5fd;
+  font-size:     .85rem;
+}

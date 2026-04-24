@@ -24,6 +24,9 @@ const {
   updateNetworkLabel,
   getSimilarDevices,
   getRecentNetworksForFingerprint,
+  getIPHistory,
+  getDeviceName,
+  setDeviceName,
 } = require('../database');
 
 // ─── POST /api/visit ──────────────────────────────────────────────────────────
@@ -61,12 +64,14 @@ router.post('/visit', async (req, res) => {
     const network_id = buildNetworkId(ip, geo.isp);
     const parsed     = parseUA(ua);
 
-    // 4. Pre-fetch similarity data (async, BEFORE classify so DB is pre-write state)
-    const [similarDevices, recentNetworks] = await Promise.all([
+    // 4. Pre-fetch similarity data + IP history + device name (all in parallel)
+    const [similarDevices, recentNetworks, ipHistory, deviceName] = await Promise.all([
       getSimilarDevices(geo.city, geo.isp, device_id),
       fingerprint_id
         ? getRecentNetworksForFingerprint(fingerprint_id, 4)
         : Promise.resolve([]),
+      getIPHistory(ip),
+      getDeviceName(device_id),
     ]);
 
     // 5. Build currentDevice + currentNetwork objects for the risk engine
@@ -168,6 +173,7 @@ router.post('/visit', async (req, res) => {
       color,
       device: {
         device_id,
+        device_name:       deviceName || null,
         fingerprint_id:    fingerprint_id || null,
         browser:           parsed.browser,
         browser_version:   parsed.browser_version,
@@ -195,6 +201,7 @@ router.post('/visit', async (req, res) => {
         visit_count:    netInfo.total_visits   || 1,
         unique_devices: netInfo.unique_devices || 1,
       },
+      ipHistory,
     });
 
   } catch (err) {
@@ -211,6 +218,22 @@ router.patch('/network-label', async (req, res) => {
   }
   await updateNetworkLabel(network_id, label.trim().slice(0, 64));
   res.json({ ok: true });
+});
+
+// ─── POST /api/device/name ────────────────────────────────────────────────────
+router.post('/device/name', async (req, res) => {
+  const { device_id, name } = req.body;
+  if (!device_id || !name) {
+    return res.status(400).json({ error: 'device_id and name are required' });
+  }
+  await setDeviceName(device_id, name);
+  res.json({ ok: true });
+});
+
+// ─── GET /api/device/name/:device_id ─────────────────────────────────────────
+router.get('/device/name/:device_id', async (req, res) => {
+  const name = await getDeviceName(req.params.device_id);
+  res.json({ device_name: name || null });
 });
 
 module.exports = router;

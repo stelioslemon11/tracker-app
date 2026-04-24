@@ -41,6 +41,21 @@
     <div id="error-box"></div>
 
     <!-- Main result box (hidden until data arrives) -->
+    <!-- Device naming modal (shown on first visit if no name saved) -->
+    <div id="name-modal" style="display:none">
+      <div class="name-modal-backdrop"></div>
+      <div class="name-modal-box">
+        <div class="name-modal-icon">🏷️</div>
+        <h2 class="name-modal-title">Name This Device</h2>
+        <p class="name-modal-desc">Give this device a label so it's easy to recognise in the dashboard. You can change it any time.</p>
+        <input id="name-modal-input" class="name-modal-input" type="text" placeholder="e.g. John's iPhone, Office PC…" maxlength="64" />
+        <div class="name-modal-actions">
+          <button id="name-modal-save" class="name-modal-btn-primary">Save Name</button>
+          <button id="name-modal-skip" class="name-modal-btn-skip">Skip for now</button>
+        </div>
+      </div>
+    </div>
+
     <div id="result-box">
 
       <div class="result-header">
@@ -49,6 +64,16 @@
       </div>
 
       <p class="result-desc" id="result-desc">—</p>
+
+      <!-- Device name badge + rename link -->
+      <div id="device-name-bar" style="display:none" class="device-name-bar">
+        <span class="device-name-icon">🏷️</span>
+        <span id="device-name-display"></span>
+        <button id="device-name-rename" class="device-name-rename-btn">rename</button>
+      </div>
+
+      <!-- IP status panel -->
+      <div id="ip-status-panel" class="ip-status-panel" style="display:none"></div>
 
       <!-- Returning device notice (shown when device is known) -->
       <div class="fp-banner" id="fp-banner">
@@ -405,6 +430,107 @@ function shortId(id) {
     // Title + description
     document.getElementById('result-label').textContent = data.label;
     document.getElementById('result-desc').textContent  = data.description;
+
+    // ── Device name bar ──────────────────────────────────────────────────────
+    const _deviceId = data.device.device_id;
+    let _deviceName = data.device.device_name || localStorage.getItem('device_name_' + _deviceId) || null;
+
+    function renderDeviceNameBar(name) {
+      const bar = document.getElementById('device-name-bar');
+      const display = document.getElementById('device-name-display');
+      if (name) {
+        display.textContent = name;
+        bar.style.display = 'flex';
+      } else {
+        bar.style.display = 'none';
+      }
+    }
+
+    async function saveDeviceName(name) {
+      const clean = (name || '').trim().slice(0, 64);
+      if (!clean) return;
+      _deviceName = clean;
+      localStorage.setItem('device_name_' + _deviceId, clean);
+      await fetch('/api/device/name', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_id: _deviceId, name: clean }),
+      });
+      renderDeviceNameBar(clean);
+    }
+
+    renderDeviceNameBar(_deviceName);
+
+    // Show modal on first visit AND no name saved yet
+    if (!data.knownDevice && !_deviceName) {
+      const modal = document.getElementById('name-modal');
+      modal.style.display = 'flex';
+      const inp = document.getElementById('name-modal-input');
+      inp.focus();
+      document.getElementById('name-modal-save').addEventListener('click', async () => {
+        const val = inp.value.trim();
+        if (!val) { inp.focus(); return; }
+        modal.style.display = 'none';
+        await saveDeviceName(val);
+      });
+      inp.addEventListener('keydown', async e => {
+        if (e.key === 'Enter') {
+          const val = inp.value.trim();
+          if (!val) return;
+          modal.style.display = 'none';
+          await saveDeviceName(val);
+        }
+      });
+      document.getElementById('name-modal-skip').addEventListener('click', () => {
+        modal.style.display = 'none';
+      });
+    }
+
+    // Rename button (always visible once name set)
+    document.getElementById('device-name-rename').addEventListener('click', () => {
+      const modal = document.getElementById('name-modal');
+      const inp   = document.getElementById('name-modal-input');
+      inp.value = _deviceName || '';
+      modal.style.display = 'flex';
+      inp.focus();
+      // Replace save handler
+      const saveBtn = document.getElementById('name-modal-save');
+      const newSave = saveBtn.cloneNode(true);
+      saveBtn.replaceWith(newSave);
+      newSave.addEventListener('click', async () => {
+        const val = inp.value.trim();
+        if (!val) { inp.focus(); return; }
+        modal.style.display = 'none';
+        await saveDeviceName(val);
+      });
+    });
+
+    // ── IP Status panel ──────────────────────────────────────────────────────
+    const ipPanel = document.getElementById('ip-status-panel');
+    const iph = data.ipHistory;
+    if (iph) {
+      if (iph.isNew) {
+        ipPanel.innerHTML = `
+          <span class="ip-status-dot ip-status-dot-green"></span>
+          <div>
+            <strong>Clean IP</strong> — this address has not been seen before on this platform.
+          </div>`;
+        ipPanel.className = 'ip-status-panel ip-status-clean';
+      } else {
+        const since = iph.firstSeen ? elapsed(iph.firstSeen) : '—';
+        const last  = iph.lastSeen  ? elapsed(iph.lastSeen)  : '—';
+        const devs  = iph.uniqueDevices || 1;
+        ipPanel.innerHTML = `
+          <span class="ip-status-dot ip-status-dot-orange"></span>
+          <div>
+            <strong>Returning IP</strong> — seen <strong>${iph.visitCount}</strong> time${iph.visitCount===1?'':'s'}
+            across <strong>${devs}</strong> device${devs===1?'':'s'}.
+            First seen <strong>${since}</strong>, last active <strong>${last}</strong>.
+          </div>`;
+        ipPanel.className = 'ip-status-panel ip-status-returning';
+      }
+      ipPanel.style.display = 'flex';
+    }
 
     // Returning device notice
     if (data.knownDevice) {
@@ -1194,16 +1320,28 @@ async function loadConnections(data) {
       <!-- Device roster -->
       <div class="cluster-devices">
         <div class="cluster-devices-title">All ${clusterSize} devices in this cluster:</div>
-        ${devices.filter(d => d.device_id !== data.device.device_id).map(d => `
+        ${await Promise.all(devices.filter(d => d.device_id !== data.device.device_id).map(async d => {
+          // Try to fetch device name (check localStorage first, then API)
+          const lsName = localStorage.getItem('device_name_' + d.device_id);
+          let devName = lsName || d.device_name || null;
+          if (!devName) {
+            try {
+              const nr = await fetch(`/api/device/name/${d.device_id}`).then(r => r.json());
+              devName = nr.device_name || null;
+            } catch(_) {}
+          }
+          return `
           <div class="cluster-device-row">
             <span class="cluster-device-icon">${d.os?.toLowerCase().includes('android') || d.os?.toLowerCase().includes('ios') ? '📱' : '🖥️'}</span>
             <div class="cluster-device-info">
-              <div class="cluster-device-main">${d.browser || '?'} / ${d.os || '?'}</div>
+              <div class="cluster-device-main">
+                ${devName ? `<span class="cluster-device-name">🏷️ ${devName}</span> · ` : ''}${d.browser || '?'} / ${d.os || '?'}
+              </div>
               <div class="cluster-device-sub">${[d.last_city, d.last_isp, d.last_ip].filter(Boolean).join(' · ') || '—'}</div>
             </div>
             <div class="cluster-device-id">${(d.device_id||'').slice(0,12)}…</div>
-          </div>
-        `).join('')}
+          </div>`;
+        })).then(rows => rows.join(''))}
       </div>
     `;
 
