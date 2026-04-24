@@ -331,8 +331,9 @@
             <option value="APPROVED">Approved</option>
             <option value="REJECTED">Rejected</option>
           </select>
-          <button id="kyc-admin-refresh" class="kyc-btn-secondary" style="padding:4px 10px;font-size:.78rem">↻ Refresh</button>
-          <button id="kyc-admin-close"   class="kyc-btn-secondary" style="padding:4px 10px;font-size:.78rem">✕ Close</button>
+          <button id="kyc-admin-refresh"    class="kyc-btn-secondary" style="padding:4px 10px;font-size:.78rem">↻ Refresh</button>
+          <button id="kyc-admin-clear-all" class="kyc-btn-reject"    style="padding:4px 10px;font-size:.78rem">🗑 Clear All Data</button>
+          <button id="kyc-admin-close"     class="kyc-btn-secondary" style="padding:4px 10px;font-size:.78rem">✕ Close</button>
         </div>
       </div>
       <div id="kyc-admin-list"></div>
@@ -978,6 +979,17 @@ function kycBindButtons() {
   });
   document.getElementById('kyc-admin-refresh')?.addEventListener('click', loadAdminQueue);
   document.getElementById('kyc-admin-filter')?.addEventListener('change', loadAdminQueue);
+  document.getElementById('kyc-admin-clear-all')?.addEventListener('click', async () => {
+    if (!confirm('⚠️ Delete ALL visit history, devices, networks, and KYC data?\n\nThis cannot be undone.')) return;
+    const res = await fetch(`/api/admin/clear-all?pw=${encodeURIComponent(_kycAdminPw)}`, { method: 'DELETE' });
+    if (res.ok) {
+      alert('✅ All data cleared.');
+      loadAdminQueue();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      alert('❌ ' + (err.error || 'Failed to clear data.'));
+    }
+  });
 }
 
 // ─ admin queue ────────────────────────────────────────────────────────────────
