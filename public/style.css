@@ -1349,3 +1349,67 @@ tbody td {
   color:         #93c5fd;
   font-size:     .85rem;
 }
+
+/* ── LAN match panel ────────────────────────────────────────────────────────── */
+#lan-match-panel {
+  margin-top: 24px;
+}
+
+.lan-summary {
+  background:    #1e293b;
+  border:        1px solid #334155;
+  border-radius: 8px;
+  padding:       10px 14px;
+  font-size:     .85rem;
+  color:         var(--muted);
+  margin-bottom: 12px;
+}
+
+.lan-match-item {
+  background:    #0f2a1a;
+  border:        1px solid #166534;
+  border-left:   4px solid #22c55e;
+  border-radius: 8px;
+  padding:       14px 16px;
+  margin-bottom: 10px;
+}
+
+.lan-match-item.lan-match-clean {
+  background:    #1e293b;
+  border:        1px solid #334155;
+  border-left:   4px solid #22c55e;
+  color:         var(--muted);
+  font-size:     .85rem;
+}
+
+.lan-match-name {
+  font-size:     .95rem;
+  margin-bottom: 6px;
+}
+
+.lan-match-stats {
+  display:       flex;
+  gap:           12px;
+  align-items:   center;
+  margin-bottom: 6px;
+}
+
+.lan-match-count {
+  background:    #166534;
+  color:         #86efac;
+  border-radius: 20px;
+  padding:       2px 10px;
+  font-size:     .78rem;
+  font-weight:   600;
+}
+
+.lan-match-overlap {
+  font-size:     .78rem;
+  color:         var(--muted);
+}
+
+.lan-match-detail {
+  font-size:     .78rem;
+  color:         var(--muted);
+  line-height:   1.5;
+}

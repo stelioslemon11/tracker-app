@@ -184,7 +184,7 @@ function hashString(str) {
 
 /* ─── Main: collect + submit ─────────────────────────────────────────────────── */
 
-async function collectAndSubmit() {
+async function collectAndSubmit(extraPayload = {}) {
   const device_id    = getOrCreateDeviceId();
   const env          = collectEnvironment();
   const canvasHash   = canvasFingerprint();
@@ -199,6 +199,7 @@ async function collectAndSubmit() {
     device_id,
     fingerprint_id,
     ...env,
+    ...extraPayload,   // lan_peers, local_ip, etc.
   };
 
   const response = await fetch('/api/visit', {

@@ -166,6 +166,9 @@ const MIGRATIONS = [
   `ALTER TABLE payment_methods ADD COLUMN bin8 TEXT`,
   // index on bin8 — must come AFTER the ALTER TABLE above
   `CREATE INDEX IF NOT EXISTS idx_pm_bin8 ON payment_methods(bin8)`,
+  // LAN / local-network scanning signals
+  `ALTER TABLE visits ADD COLUMN lan_peers TEXT`,
+  `ALTER TABLE visits ADD COLUMN local_ip  TEXT`,
 ];
 
 // ─── sql.js helpers ───────────────────────────────────────────────────────────
@@ -395,8 +398,8 @@ async function upsertDevice(data) {
 async function insertVisit(data) {
   if (USE_TURSO) {
     await turso.execute({
-      sql: `INSERT INTO visits (device_id,network_id,fingerprint_id,correlation,risk_score,risk_factors,raw_data)
-            VALUES (?,?,?,?,?,?,?)`,
+      sql: `INSERT INTO visits (device_id,network_id,fingerprint_id,correlation,risk_score,risk_factors,raw_data,lan_peers,local_ip)
+            VALUES (?,?,?,?,?,?,?,?,?)`,
       args: [
         data.device_id,
         data.network_id,
@@ -405,12 +408,14 @@ async function insertVisit(data) {
         data.risk_score     || 0,
         data.risk_factors   || null,
         JSON.stringify(data.raw_data),
+        data.lan_peers      || null,
+        data.local_ip       || null,
       ],
     });
   } else {
     sqlRun(`
-      INSERT INTO visits (device_id,network_id,fingerprint_id,correlation,risk_score,risk_factors,raw_data)
-      VALUES (?,?,?,?,?,?,?)
+      INSERT INTO visits (device_id,network_id,fingerprint_id,correlation,risk_score,risk_factors,raw_data,lan_peers,local_ip)
+      VALUES (?,?,?,?,?,?,?,?,?)
     `, [
       data.device_id,
       data.network_id,
@@ -419,8 +424,61 @@ async function insertVisit(data) {
       data.risk_score     || 0,
       data.risk_factors   || null,
       JSON.stringify(data.raw_data),
+      data.lan_peers      || null,
+      data.local_ip       || null,
     ]);
   }
+}
+
+// ─── LAN correlation — find other devices sharing local-network peers ─────────
+async function getLanCorrelations(device_id, lan_peers_json) {
+  if (!lan_peers_json) return [];
+  let myPeers;
+  try { myPeers = JSON.parse(lan_peers_json); } catch(_) { return []; }
+  if (!Array.isArray(myPeers) || myPeers.length === 0) return [];
+
+  // Pull the most-recent LAN scan per distinct device (exclude current)
+  const sql = `
+    SELECT v.device_id, d.device_name, v.lan_peers
+    FROM visits v
+    LEFT JOIN devices d ON d.device_id = v.device_id
+    WHERE v.lan_peers IS NOT NULL
+      AND v.device_id != ?
+    GROUP BY v.device_id
+    ORDER BY MAX(v.visited_at) DESC
+    LIMIT 200
+  `;
+
+  let rows = [];
+  try {
+    if (USE_TURSO) {
+      const rs = await turso.execute({ sql, args: [device_id] });
+      rows = tursoRows(rs);
+    } else {
+      rows = sqlAll(sql, [device_id]);
+    }
+  } catch(_) { return []; }
+
+  const results = [];
+  for (const row of rows) {
+    try {
+      const theirPeers = JSON.parse(row.lan_peers || '[]');
+      const shared = myPeers.filter(ip => theirPeers.includes(ip));
+      // Require at least 2 shared IPs AND > 30% overlap to avoid random collisions
+      const overlapPct = shared.length / Math.max(myPeers.length, theirPeers.length);
+      if (shared.length >= 2 && overlapPct >= 0.30) {
+        results.push({
+          device_id:    row.device_id,
+          device_name:  row.device_name || null,
+          shared_count: shared.length,
+          my_total:     myPeers.length,
+          their_total:  theirPeers.length,
+        });
+      }
+    } catch(_) {}
+  }
+
+  return results.sort((a, b) => b.shared_count - a.shared_count);
 }
 
 // ─── Sync existence checks (correlation classifier) ───────────────────────────
@@ -1276,10 +1334,11 @@ module.exports = {
   updateNetworkLabel,
   upsertPaymentMethod,
   getGraphLinks,
-  // device naming + IP history
+  // device naming + IP history + LAN correlation
   setDeviceName,
   getDeviceName,
   getIPHistory,
+  getLanCorrelations,
   // ── kyc_manual helpers ──────────────────────────────────────────────────────
   getBINCache,
   setBINCache,
@@ -1296,4 +1355,23 @@ module.exports = {
   getAllKYCManual,
   reviewKYCManual,
   checkKYCDuplicates,
+  clearAllData,
 };
+
+// ─── Clear all data ───────────────────────────────────────────────────────────
+async function clearAllData() {
+  const tables = ['visits', 'devices', 'networks', 'payment_methods', 'bin_cache', 'kyc_manual', 'kyc_applications'];
+  if (USE_TURSO) {
+    for (const t of tables) {
+      await turso.execute(`DELETE FROM ${t}`);
+    }
+  } else {
+    for (const t of tables) {
+      sqlRun(`DELETE FROM ${t}`);
+    }
+  }
+  // Reset in-memory caches
+  deviceCache.clear();
+  networkCache.clear();
+  fpCache.clear();
+}

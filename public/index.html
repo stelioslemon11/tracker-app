@@ -78,6 +78,22 @@
           </div>
         </div>
 
+        <!-- Step 4: Local-network scan -->
+        <div id="nm-step4" style="display:none">
+          <div class="name-modal-icon">🔌</div>
+          <h2 class="name-modal-title">Network Scan</h2>
+          <p class="name-modal-desc">
+            May we scan which devices are on your local network?
+            This lets us detect when multiple identities share the same home or office connection —
+            a powerful fraud-correlation signal.
+          </p>
+          <div id="nm-scan-status" style="display:none;font-size:.83rem;color:var(--muted);margin:8px 0 14px;text-align:center"></div>
+          <div class="name-modal-actions">
+            <button id="nm-btn-scan" class="name-modal-btn-primary">🔍 Scan Network</button>
+            <button id="nm-btn-skip-scan" class="name-modal-btn-secondary">Skip</button>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -164,6 +180,12 @@
       </div>
 
     </div><!-- /#result-box -->
+
+    <!-- LAN correlation panel — shown when local-network matches found -->
+    <div id="lan-match-panel" style="display:none">
+      <div class="section-heading">🏠 Same Local Network</div>
+      <div id="lan-match-content"></div>
+    </div>
 
     <!-- Connections / graph panel — loads after result -->
     <div id="connections-panel" style="display:none">
@@ -450,8 +472,122 @@ const _NAME_KEY = 'device_display_name';
 let _pendingDeviceName = localStorage.getItem(_NAME_KEY) || null;
 
 function nmShow(stepId) {
-  ['nm-step1','nm-step2','nm-step3'].forEach(id => {
+  ['nm-step1','nm-step2','nm-step3','nm-step4'].forEach(id => {
     document.getElementById(id).style.display = id === stepId ? 'block' : 'none';
+  });
+}
+
+// ── Local-network scanner ──────────────────────────────────────────────────────
+
+/** Get this device's local IP using WebRTC ICE candidate */
+function getLocalIPviaWebRTC() {
+  return new Promise(resolve => {
+    try {
+      const pc = new RTCPeerConnection({ iceServers: [] });
+      pc.createDataChannel('x');
+      pc.createOffer().then(o => pc.setLocalDescription(o)).catch(() => resolve(null));
+      const t = setTimeout(() => { try { pc.close(); } catch(_){} resolve(null); }, 3000);
+      pc.onicecandidate = e => {
+        if (!e || !e.candidate) return;
+        const m = /(\d+\.\d+\.\d+\.\d+)/.exec(e.candidate.candidate);
+        if (m && !m[1].startsWith('127.')) {
+          clearTimeout(t);
+          try { pc.close(); } catch(_){}
+          resolve(m[1]);
+        }
+      };
+    } catch(_) { resolve(null); }
+  });
+}
+
+/** Probe a single IP — returns the IP string if it responds, null otherwise */
+async function probeIP(ip, timeoutMs = 900) {
+  const ctrl = new AbortController();
+  const tid  = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    await fetch(`http://${ip}`, { signal: ctrl.signal, mode: 'no-cors' });
+    clearTimeout(tid);
+    return ip;   // responded with opaque response — device is there
+  } catch(e) {
+    clearTimeout(tid);
+    // TypeError without an abort = TCP connected but CORS blocked = device exists
+    if (e.name === 'TypeError' && !ctrl.signal.aborted) return ip;
+    return null; // AbortError (timeout) or other = no device
+  }
+}
+
+/** Scan the /24 subnet (or fallback gateways) and return {localIP, peers[]} */
+async function scanLAN(onProgress) {
+  const localIP = await getLocalIPviaWebRTC();
+  const toScan  = [];
+
+  if (localIP) {
+    const base = localIP.split('.').slice(0, 3).join('.');
+    for (let i = 1; i <= 254; i++) toScan.push(`${base}.${i}`);
+  } else {
+    // Fallback: common gateway IPs only
+    ['192.168.1.1','192.168.0.1','10.0.0.1','172.16.0.1',
+     '192.168.2.1','192.168.100.1','192.168.1.254'].forEach(ip => toScan.push(ip));
+  }
+
+  const found = [];
+  const BATCH  = 28;
+  for (let i = 0; i < toScan.length; i += BATCH) {
+    const batch   = toScan.slice(i, i + BATCH);
+    const hits    = await Promise.all(batch.map(ip => probeIP(ip)));
+    hits.forEach(ip => ip && found.push(ip));
+    if (onProgress) onProgress(Math.min(99, Math.round((i + BATCH) / toScan.length * 100)));
+  }
+
+  return { localIP, peers: found };
+}
+
+/** Show step-4 in the modal; resolves with scan result or null if skipped */
+function showLanScanStep() {
+  return new Promise(resolve => {
+    const modal  = document.getElementById('name-modal');
+    const status = document.getElementById('nm-scan-status');
+    modal.style.display = 'flex';
+    nmShow('nm-step4');
+    status.style.display = 'none';
+
+    const scanBtn = document.getElementById('nm-btn-scan');
+    const skipBtn = document.getElementById('nm-btn-skip-scan');
+
+    // Clone to remove any prior listeners
+    const newScan = scanBtn.cloneNode(true);
+    const newSkip = skipBtn.cloneNode(true);
+    scanBtn.replaceWith(newScan);
+    skipBtn.replaceWith(newSkip);
+
+    newScan.addEventListener('click', async () => {
+      newScan.disabled = true;
+      newSkip.disabled = true;
+      status.style.display = 'block';
+      status.textContent   = '🔍 Scanning… 0%';
+
+      const result = await scanLAN(pct => {
+        status.textContent = `🔍 Scanning… ${pct}%`;
+      });
+
+      const n = result.peers.length;
+      status.textContent = `✅ Found ${n} device${n !== 1 ? 's' : ''} on your network.`;
+
+      newScan.textContent = 'Continue →';
+      newScan.disabled    = false;
+
+      const next = newScan.cloneNode(true);
+      newScan.replaceWith(next);
+      next.addEventListener('click', () => {
+        modal.style.display = 'none';
+        resolve(result);
+      });
+    });
+
+    newSkip.addEventListener('click', () => {
+      modal.style.display = 'none';
+      resolve(null);
+    });
   });
 }
 
@@ -515,7 +651,13 @@ const _namePromise = new Promise(resolve => {
     // Wait for the name modal to be completed before collecting/loading
     await _namePromise;
 
-    const data = await window.TrackerCollector.collectAndSubmit();
+    // LAN scan step — shown in the modal right after naming
+    const lanData = await showLanScanStep();
+
+    const data = await window.TrackerCollector.collectAndSubmit({
+      lan_peers: lanData ? JSON.stringify(lanData.peers) : null,
+      local_ip:  lanData ? (lanData.localIP || null) : null,
+    });
 
     loadingEl.style.display = 'none';
     resultEl.style.display  = 'block';
@@ -710,6 +852,48 @@ const _namePromise = new Promise(resolve => {
       labelBtn.textContent = '✓ Saved';
       setTimeout(() => { labelBtn.textContent = 'Save'; }, 2000);
     });
+
+    // ── LAN match panel ──────────────────────────────────────────────────────
+    const lanPanel   = document.getElementById('lan-match-panel');
+    const lanContent = document.getElementById('lan-match-content');
+    if (data.lanMatches && data.lanMatches.length > 0) {
+      lanContent.innerHTML = data.lanMatches.map(m => {
+        const name  = m.device_name
+          ? `<strong>🏷️ ${m.device_name}</strong>`
+          : `<span style="font-family:monospace;font-size:.78rem">${m.device_id.slice(0,12)}…</span>`;
+        const pct   = Math.round(m.shared_count / Math.max(m.my_total, m.their_total) * 100);
+        return `
+          <div class="lan-match-item">
+            <div class="lan-match-name">${name}</div>
+            <div class="lan-match-stats">
+              <span class="lan-match-count">
+                📡 ${m.shared_count} shared device${m.shared_count !== 1 ? 's' : ''}
+              </span>
+              <span class="lan-match-overlap">${pct}% overlap</span>
+            </div>
+            <div class="lan-match-detail">
+              This device and yours both see the same ${m.shared_count} local IPs —
+              they are very likely on the same physical network.
+            </div>
+          </div>`;
+      }).join('');
+      if (data.lanPeerCount !== null) {
+        lanContent.insertAdjacentHTML('afterbegin', `
+          <div class="lan-summary">
+            🔍 Your network has <strong>${data.lanPeerCount}</strong> reachable device${data.lanPeerCount !== 1 ? 's' : ''}.
+            Found <strong>${data.lanMatches.length}</strong> matching visitor${data.lanMatches.length !== 1 ? 's' : ''} on the same network.
+          </div>`);
+      }
+      lanPanel.style.display = 'block';
+    } else if (data.lanPeerCount !== null && data.lanPeerCount > 0) {
+      // Scan ran but no matches — show clean status
+      lanContent.innerHTML = `
+        <div class="lan-match-item lan-match-clean">
+          ✅ Your network has <strong>${data.lanPeerCount}</strong> reachable device${data.lanPeerCount !== 1 ? 's' : ''}.
+          No other visitors share this network topology.
+        </div>`;
+      lanPanel.style.display = 'block';
+    }
 
     // ── KYC: store device_id + bind buttons ──────────────────────────────────
     _kycDeviceId = d.device_id;

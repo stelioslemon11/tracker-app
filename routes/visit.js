@@ -27,6 +27,7 @@ const {
   getIPHistory,
   getDeviceName,
   setDeviceName,
+  getLanCorrelations,
 } = require('../database');
 
 // ─── POST /api/visit ──────────────────────────────────────────────────────────
@@ -50,6 +51,8 @@ router.post('/visit', async (req, res) => {
       cpu_cores,
       memory_gb,
       touch_support,
+      lan_peers,
+      local_ip,
     } = req.body;
 
     if (!device_id) {
@@ -73,6 +76,12 @@ router.post('/visit', async (req, res) => {
       getIPHistory(ip),
       getDeviceName(device_id),
     ]);
+
+    // Normalise lan_peers to a JSON string (may arrive as array or string)
+    let lan_peers_json = null;
+    if (lan_peers) {
+      lan_peers_json = typeof lan_peers === 'string' ? lan_peers : JSON.stringify(lan_peers);
+    }
 
     // 5. Build currentDevice + currentNetwork objects for the risk engine
     const currentDevice = {
@@ -152,7 +161,12 @@ router.post('/visit', async (req, res) => {
       risk_score:   classResult.riskScore,
       risk_factors: JSON.stringify(classResult.riskFactors),
       raw_data:     rawData,
+      lan_peers:    lan_peers_json,
+      local_ip:     local_ip || null,
     });
+
+    // LAN correlation — find other devices sharing local-network peers
+    const lanMatches = await getLanCorrelations(device_id, lan_peers_json);
 
     // 9. Fetch current network label
     const networks = await getNetworkSummaries();
@@ -202,6 +216,8 @@ router.post('/visit', async (req, res) => {
         unique_devices: netInfo.unique_devices || 1,
       },
       ipHistory,
+      lanMatches,
+      lanPeerCount: lan_peers_json ? (() => { try { return JSON.parse(lan_peers_json).length; } catch(_) { return 0; } })() : null,
     });
 
   } catch (err) {
