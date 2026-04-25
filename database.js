@@ -430,55 +430,56 @@ async function insertVisit(data) {
   }
 }
 
-// ─── LAN correlation — find other devices sharing local-network peers ─────────
-async function getLanCorrelations(device_id, lan_peers_json) {
-  if (!lan_peers_json) return [];
-  let myPeers;
-  try { myPeers = JSON.parse(lan_peers_json); } catch(_) { return []; }
-  if (!Array.isArray(myPeers) || myPeers.length === 0) return [];
+// ─── LAN correlation — match devices on the same local subnet + external IP ───
+//
+// Strategy: two devices are "same network" when they share:
+//   1. the same external network (network_id) — behind the same router/ISP
+//   2. the same local /24 subnet — same physical WiFi or LAN segment
+//
+// local_ip comes from WebRTC ICE candidate (no browser permission needed).
+async function getLanCorrelations(device_id, network_id, local_ip) {
+  if (!local_ip || !network_id) return [];
+  const mySubnet = local_ip.split('.').slice(0, 3).join('.');
 
-  // Pull the most-recent LAN scan per distinct device (exclude current)
+  // Pull the most-recent local_ip per distinct device on the same external network
   const sql = `
-    SELECT v.device_id, d.device_name, v.lan_peers
+    SELECT v.device_id, d.device_name, v.local_ip
     FROM visits v
     LEFT JOIN devices d ON d.device_id = v.device_id
-    WHERE v.lan_peers IS NOT NULL
+    WHERE v.local_ip IS NOT NULL
       AND v.device_id != ?
+      AND v.network_id = ?
     GROUP BY v.device_id
     ORDER BY MAX(v.visited_at) DESC
-    LIMIT 200
+    LIMIT 100
   `;
 
   let rows = [];
   try {
     if (USE_TURSO) {
-      const rs = await turso.execute({ sql, args: [device_id] });
+      const rs = await turso.execute({ sql, args: [device_id, network_id] });
       rows = tursoRows(rs);
     } else {
-      rows = sqlAll(sql, [device_id]);
+      rows = sqlAll(sql, [device_id, network_id]);
     }
   } catch(_) { return []; }
 
   const results = [];
   for (const row of rows) {
     try {
-      const theirPeers = JSON.parse(row.lan_peers || '[]');
-      const shared = myPeers.filter(ip => theirPeers.includes(ip));
-      // Require at least 2 shared IPs AND > 30% overlap to avoid random collisions
-      const overlapPct = shared.length / Math.max(myPeers.length, theirPeers.length);
-      if (shared.length >= 2 && overlapPct >= 0.30) {
+      const theirSubnet = (row.local_ip || '').split('.').slice(0, 3).join('.');
+      if (theirSubnet && theirSubnet === mySubnet) {
         results.push({
-          device_id:    row.device_id,
-          device_name:  row.device_name || null,
-          shared_count: shared.length,
-          my_total:     myPeers.length,
-          their_total:  theirPeers.length,
+          device_id:   row.device_id,
+          device_name: row.device_name || null,
+          their_ip:    row.local_ip,
+          my_ip:       local_ip,
         });
       }
     } catch(_) {}
   }
 
-  return results.sort((a, b) => b.shared_count - a.shared_count);
+  return results;
 }
 
 // ─── Sync existence checks (correlation classifier) ───────────────────────────

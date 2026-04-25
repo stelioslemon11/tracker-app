@@ -77,7 +77,7 @@ router.post('/visit', async (req, res) => {
       getDeviceName(device_id),
     ]);
 
-    // Normalise lan_peers to a JSON string (may arrive as array or string)
+    // Normalise lan_peers (kept for schema compatibility, currently unused)
     let lan_peers_json = null;
     if (lan_peers) {
       lan_peers_json = typeof lan_peers === 'string' ? lan_peers : JSON.stringify(lan_peers);
@@ -165,8 +165,8 @@ router.post('/visit', async (req, res) => {
       local_ip:     local_ip || null,
     });
 
-    // LAN correlation — find other devices sharing local-network peers
-    const lanMatches = await getLanCorrelations(device_id, lan_peers_json);
+    // LAN correlation — find devices on same local subnet + same external network
+    const lanMatches = await getLanCorrelations(device_id, network_id, local_ip || null);
 
     // 9. Fetch current network label
     const networks = await getNetworkSummaries();
@@ -217,7 +217,7 @@ router.post('/visit', async (req, res) => {
       },
       ipHistory,
       lanMatches,
-      lanPeerCount: lan_peers_json ? (() => { try { return JSON.parse(lan_peers_json).length; } catch(_) { return 0; } })() : null,
+      localIP: local_ip || null,
     });
 
   } catch (err) {
