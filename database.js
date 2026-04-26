@@ -166,9 +166,8 @@ const MIGRATIONS = [
   `ALTER TABLE payment_methods ADD COLUMN bin8 TEXT`,
   // index on bin8 — must come AFTER the ALTER TABLE above
   `CREATE INDEX IF NOT EXISTS idx_pm_bin8 ON payment_methods(bin8)`,
-  // LAN / local-network scanning signals
-  `ALTER TABLE visits ADD COLUMN lan_peers TEXT`,
-  `ALTER TABLE visits ADD COLUMN local_ip  TEXT`,
+  // NOTE: lan_peers and local_ip NOT added here — local_ip is stored in
+  // raw_data JSON and queried via json_extract() to avoid schema-lock issues.
 ];
 
 // ─── sql.js helpers ───────────────────────────────────────────────────────────
