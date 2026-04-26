@@ -68,8 +68,14 @@ router.post('/visit', async (req, res) => {
     }
 
     // 3. IP geolookup + parse UA
+    // Wrap lookupIP in a hard 5s timeout — node-fetch's internal timeout
+    // doesn't cancel during DNS resolution, which can hang for 30+ seconds.
+    const GEO_FALLBACK = { isp:'Unknown', country:'', countryCode:'', region:'', city:'', lat:0, lon:0, org:'', query:ip };
     const [geo, ua] = await Promise.all([
-      lookupIP(ip),
+      Promise.race([
+        lookupIP(ip),
+        new Promise(resolve => setTimeout(() => resolve(GEO_FALLBACK), 5000)),
+      ]),
       Promise.resolve(req.headers['user-agent'] || ''),
     ]);
     const network_id = buildNetworkId(ip, geo.isp);
@@ -179,8 +185,11 @@ router.post('/visit', async (req, res) => {
     // LAN correlation — find devices on same local subnet + same external network
     const lanMatches = await getLanCorrelations(device_id, network_id, local_ip || null);
 
-    // 9. Fetch current network label
-    const networks = await getNetworkSummaries();
+    // 9. Fetch current network label (with 8s timeout)
+    const networks = await Promise.race([
+      getNetworkSummaries(),
+      new Promise(resolve => setTimeout(() => resolve([]), 8000)),
+    ]);
     const netInfo  = networks.find(n => n.network_id === network_id) || {};
 
     // 10. Respond
