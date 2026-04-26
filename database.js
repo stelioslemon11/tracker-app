@@ -396,10 +396,15 @@ async function upsertDevice(data) {
 }
 
 async function insertVisit(data) {
+  // NOTE: local_ip and lan_peers are embedded inside raw_data JSON to avoid
+  // schema-column issues with @libsql/client 0.5.6 (hangs on unknown columns).
+  // The separate lan_peers/local_ip columns exist in MIGRATIONS for future use.
+  const rawJson = JSON.stringify(data.raw_data);
+
   if (USE_TURSO) {
     await turso.execute({
-      sql: `INSERT INTO visits (device_id,network_id,fingerprint_id,correlation,risk_score,risk_factors,raw_data,lan_peers,local_ip)
-            VALUES (?,?,?,?,?,?,?,?,?)`,
+      sql: `INSERT INTO visits (device_id,network_id,fingerprint_id,correlation,risk_score,risk_factors,raw_data)
+            VALUES (?,?,?,?,?,?,?)`,
       args: [
         data.device_id,
         data.network_id,
@@ -407,15 +412,13 @@ async function insertVisit(data) {
         data.correlation,
         data.risk_score     || 0,
         data.risk_factors   || null,
-        JSON.stringify(data.raw_data),
-        data.lan_peers      || null,
-        data.local_ip       || null,
+        rawJson,
       ],
     });
   } else {
     sqlRun(`
-      INSERT INTO visits (device_id,network_id,fingerprint_id,correlation,risk_score,risk_factors,raw_data,lan_peers,local_ip)
-      VALUES (?,?,?,?,?,?,?,?,?)
+      INSERT INTO visits (device_id,network_id,fingerprint_id,correlation,risk_score,risk_factors,raw_data)
+      VALUES (?,?,?,?,?,?,?)
     `, [
       data.device_id,
       data.network_id,
@@ -423,9 +426,7 @@ async function insertVisit(data) {
       data.correlation,
       data.risk_score     || 0,
       data.risk_factors   || null,
-      JSON.stringify(data.raw_data),
-      data.lan_peers      || null,
-      data.local_ip       || null,
+      rawJson,
     ]);
   }
 }
@@ -441,16 +442,18 @@ async function getLanCorrelations(device_id, network_id, local_ip) {
   if (!local_ip || !network_id) return [];
   const mySubnet = local_ip.split('.').slice(0, 3).join('.');
 
-  // Pull the most-recent local_ip per distinct device on the same external network
+  // Pull the most-recent local_ip (stored in raw_data JSON) per distinct device
+  // on the same external network. json_extract works in both SQLite and Turso.
   const sql = `
-    SELECT v.device_id, d.device_name, v.local_ip
+    SELECT v.device_id, d.device_name,
+           json_extract(v.raw_data, '$.local_ip') AS local_ip
     FROM visits v
     LEFT JOIN devices d ON d.device_id = v.device_id
-    WHERE v.local_ip IS NOT NULL
+    WHERE json_extract(v.raw_data, '$.local_ip') IS NOT NULL
       AND v.device_id != ?
       AND v.network_id = ?
     GROUP BY v.device_id
-    ORDER BY MAX(v.visited_at) DESC
+    ORDER BY MAX(v.visit_time) DESC
     LIMIT 100
   `;
 

@@ -32,6 +32,14 @@ const {
 
 // ─── POST /api/visit ──────────────────────────────────────────────────────────
 router.post('/visit', async (req, res) => {
+  // Safety-net: never hang the client longer than 25 seconds
+  const _hangGuard = setTimeout(() => {
+    if (!res.headersSent) {
+      console.error('[POST /api/visit] 25s timeout — sending 504');
+      res.status(504).json({ error: 'Request timed out. Server may be starting up, please retry.' });
+    }
+  }, 25000);
+
   try {
     // 1. Real client IP (handles proxies / Render / ngrok)
     const ip =
@@ -146,10 +154,13 @@ router.post('/visit', async (req, res) => {
     });
 
     // 8. Record visit with risk data
+    // local_ip is stored inside raw_data JSON (avoids schema-column issues);
+    // getLanCorrelations queries it via json_extract(raw_data, '$.local_ip')
     const rawData = {
       ip, geo, ua, device_id, fingerprint_id,
       screen_resolution, color_depth, timezone, language,
       platform, cpu_cores, memory_gb, touch_support,
+      local_ip: local_ip || null,
       ...parsed,
     };
 
@@ -219,10 +230,14 @@ router.post('/visit', async (req, res) => {
       lanMatches,
       localIP: local_ip || null,
     });
+    clearTimeout(_hangGuard);
 
   } catch (err) {
+    clearTimeout(_hangGuard);
     console.error('[POST /api/visit]', err);
-    res.status(500).json({ error: 'Internal server error', detail: err.message });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Internal server error', detail: err.message });
+    }
   }
 });
 
