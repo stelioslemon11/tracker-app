@@ -34,7 +34,7 @@
     <!-- Loading spinner -->
     <div id="loading">
       <div class="spinner"></div>
-      <span>Collecting fingerprint and analysing your visit…</span>
+      <span id="loading-msg">Collecting fingerprint and analysing your visit…</span>
     </div>
 
     <!-- Error -->
@@ -428,6 +428,13 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
   });
 });
 
+// ── Server warmup ping ────────────────────────────────────────────────────────
+// Fire immediately on page load so the Render free-tier server is warm
+// by the time the user finishes the modal (which takes ~5-10 seconds).
+(function warmupServer() {
+  fetch('/api/stats', { method: 'GET' }).catch(() => {});
+})();
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function row(key, val) {
   if (val === null || val === undefined || val === '') return '';
@@ -613,9 +620,16 @@ const _namePromise = new Promise(resolve => {
     // LAN step — detects local IP via WebRTC, shown in modal right after naming
     const localIP = await showLanScanStep();
 
+    // Show a "waking up" hint if the server takes more than 5 seconds
+    const _slowTimer = setTimeout(() => {
+      const el = document.getElementById('loading-msg');
+      if (el) el.textContent = '⏳ Server is waking up — this takes up to 30 seconds on first load…';
+    }, 5000);
+
     const data = await window.TrackerCollector.collectAndSubmit({
       local_ip: localIP || null,
     });
+    clearTimeout(_slowTimer);
 
     loadingEl.style.display = 'none';
     resultEl.style.display  = 'block';
